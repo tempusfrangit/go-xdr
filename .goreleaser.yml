@@ -1,3 +1,5 @@
+version: 2
+
 project_name: go-xdr
 
 before:
@@ -7,8 +9,9 @@ before:
 
 builds:
   - id: xdrgen
-    main: ./tools/xdrgen
+    main: .
     binary: xdrgen
+    dir: ./tools/xdrgen
     env:
       - CGO_ENABLED=0
     goos:
@@ -84,22 +87,3 @@ release:
     ### Checksums
 
     All binaries are checksummed and the checksum file is signed.
-
-
-
-brews:
-  - name: xdrgen
-    tap:
-      owner: tempusfrangit
-      name: homebrew-tap
-    folder: Formula
-    homepage: https://github.com/tempusfrangit/go-xdr
-    description: "XDR library and code generator for Go"
-    license: MIT
-    dependencies:
-      - name: go
-        type: optional
-    install: |
-      bin.install "xdrgen"
-    test: |
-      system "#{bin}/xdrgen", "--help"
