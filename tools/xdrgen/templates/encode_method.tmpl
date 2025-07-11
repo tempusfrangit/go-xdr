@@ -1,0 +1,6 @@
+func (v *{{.TypeName}}) Encode(enc *xdr.Encoder) error {
+{{range .Fields}}
+	{{.EncodeCode}}
+{{end}}
+	return nil
+}

@@ -1,0 +1,5 @@
+if v.{{.FieldName}} != nil {
+			if err := v.{{.FieldName}}.Encode(enc); err != nil {
+				return fmt.Errorf("failed to encode {{.FieldName}}: %w", err)
+			}
+		}

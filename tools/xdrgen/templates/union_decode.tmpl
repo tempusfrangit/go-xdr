@@ -1,0 +1,11 @@
+// Switch based on discriminant for union field {{.FieldName}}
+	switch v.{{.DiscriminantField}} {
+{{range .Cases}}
+	{{.CaseLabels}}:
+		{{.DecodeCode}}
+{{end}}
+{{if not .HasDefaultCase}}
+	default:
+		// unknown discriminant - decode nothing
+{{end}}
+	}

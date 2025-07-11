@@ -1,0 +1,6 @@
+func (v *{{.TypeName}}) Decode(dec *xdr.Decoder) error {
+{{range .Fields}}
+	{{.DecodeCode}}
+{{end}}
+	return nil
+}

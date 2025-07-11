@@ -1,0 +1,22 @@
+length, err := dec.DecodeUint32()
+	if err != nil {
+		return fmt.Errorf("failed to decode {{.FieldName}} length: %w", err)
+	}
+	v.{{.FieldName}} = make({{.FieldType}}, length)
+	for i := uint32(0); i < length; i++ {
+		{{if eq .ElementType "uint32"}}val, err := dec.DecodeUint32()
+		if err != nil {
+			return fmt.Errorf("failed to decode array element %d: %w", i, err)
+		}
+		v.{{.FieldName}}[i] = val{{else if eq .ElementType "uint64"}}val, err := dec.DecodeUint64()
+		if err != nil {
+			return fmt.Errorf("failed to decode array element %d: %w", i, err)
+		}
+		v.{{.FieldName}}[i] = val{{else if eq .ElementType "string"}}val, err := dec.DecodeString()
+		if err != nil {
+			return fmt.Errorf("failed to decode array element %d: %w", i, err)
+		}
+		v.{{.FieldName}}[i] = val{{else}}if err := v.{{.FieldName}}[i].Decode(dec); err != nil {
+			return fmt.Errorf("failed to decode array element %d: %w", i, err)
+		}{{end}}
+	}
