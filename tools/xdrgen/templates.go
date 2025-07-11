@@ -268,6 +268,9 @@ func generateBasicEncodeCode(field FieldInfo) (string, error) {
 	if strings.HasPrefix(field.XDRType, "alias:") {
 		// Extract the underlying type from the alias specification
 		underlyingType := strings.TrimPrefix(field.XDRType, "alias:")
+		if underlyingType == "[]byte" {
+			underlyingType = "bytes"
+		}
 		encodeMethod := getEncodeMethod(underlyingType)
 		if encodeMethod == "" {
 			return "", fmt.Errorf("unsupported underlying type for alias: %s", underlyingType)
@@ -317,6 +320,9 @@ func generateBasicDecodeCode(field FieldInfo) (string, error) {
 	if strings.HasPrefix(field.XDRType, "alias:") {
 		// Extract the underlying type from the alias specification
 		underlyingType := strings.TrimPrefix(field.XDRType, "alias:")
+		if underlyingType == "[]byte" {
+			underlyingType = "bytes"
+		}
 		decodeMethod := getDecodeMethod(underlyingType)
 		if decodeMethod == "" {
 			return "", fmt.Errorf("unsupported underlying type for alias: %s", underlyingType)

@@ -21,7 +21,7 @@
 //	`xdr:"string"`    - variable-length string
 //	`xdr:"bytes"`     - variable-length byte array
 //	`xdr:"bool"`      - boolean (encoded as uint32)
-//	`xdr:"alias:TYPE"` - Type alias with custom encoding (e.g. "alias:stateid", "alias:sessionid")
+//	`xdr:"alias"`     - type alias with automatic type inference
 //	`xdr:"struct"`    - nested struct (must implement xdr.Codec)
 //	`xdr:"array"`     - variable-length array (delegates to element type)
 //	`xdr:"fixed:N"`   - fixed-size byte array (N bytes)
@@ -365,6 +365,20 @@ func parseFile(filename string) ([]TypeInfo, error) {
 
 	var types []TypeInfo
 
+	// Build a map of type aliases for lookup
+	typeAliases := make(map[string]string)
+
+	// First pass: collect all type definitions (type Alias Underlying)
+	ast.Inspect(file, func(n ast.Node) bool {
+		if node, ok := n.(*ast.TypeSpec); ok {
+			if node.Assign == 0 { // This is a type definition (type Alias Underlying)
+				underlyingType := formatType(node.Type)
+				typeAliases[node.Name.Name] = underlyingType
+			}
+		}
+		return true
+	})
+
 	// Build a map of struct names that have go:generate directives
 	structsToGenerate := make(map[string]bool)
 
@@ -480,11 +494,27 @@ func parseFile(filename string) ([]TypeInfo, error) {
 							continue // Skip this field
 						}
 
-						// Use explicit XDR type
-						fieldInfo.XDRType = xdrTag
+						// Only allow xdr:"alias" now
+						if xdrTag == "alias" {
+							// Look up underlying type from type definitions
+							underlyingType, exists := typeAliases[fieldInfo.Type]
+							if !exists {
+								// Fall back to direct type inference for built-in types
+								var err error
+								underlyingType, err = inferUnderlyingType(fieldInfo.Type)
+								if err != nil {
+									log.Fatalf("Cannot infer underlying type for alias field %s.%s of type %s: %v. Use xdr:\"alias\" only on supported types.",
+										typeInfo.Name, fieldInfo.Name, fieldInfo.Type, err)
+								}
+							}
+							logf("Alias field %s.%s: %s -> %s", typeInfo.Name, fieldInfo.Name, fieldInfo.Type, underlyingType)
+							fieldInfo.XDRType = "alias:" + underlyingType
+						} else {
+							fieldInfo.XDRType = xdrTag
+						}
 
 						// Check for discriminated union tags
-						isDiscriminant, unionSpec := parseDiscriminatedUnionTag(xdrTag)
+						isDiscriminant, unionSpec := parseDiscriminatedUnionTag(fieldInfo.XDRType)
 						fieldInfo.IsDiscriminant = isDiscriminant
 						fieldInfo.UnionSpec = unionSpec
 
@@ -533,6 +563,28 @@ func formatType(expr ast.Expr) string {
 	}
 }
 
+// inferUnderlyingType infers the XDR underlying type from a Go type alias
+func inferUnderlyingType(goType string) (string, error) {
+	switch goType {
+	case "string":
+		return "string", nil
+	case "[]byte":
+		return "bytes", nil
+	case "uint32":
+		return "uint32", nil
+	case "uint64":
+		return "uint64", nil
+	case "int32":
+		return "int32", nil
+	case "int64":
+		return "int64", nil
+	case "bool":
+		return "bool", nil
+	default:
+		return "", fmt.Errorf("unsupported type for alias inference: %s (supported: string, []byte, uint32, uint64, int32, int64, bool)", goType)
+	}
+}
+
 func main() {
 	// Configure log to remove timestamps for cleaner output
 	log.SetFlags(0)
@@ -559,7 +611,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  `xdr:\"struct\"`     - nested struct (must implement xdr.Codec)\n")
 		fmt.Fprintf(os.Stderr, "  `xdr:\"array\"`      - variable-length array\n")
 		fmt.Fprintf(os.Stderr, "  `xdr:\"fixed:N\"`    - fixed-size byte array (N bytes)\n")
-		fmt.Fprintf(os.Stderr, "  `xdr:\"alias:TYPE\"` - type alias with custom encoding\n")
+		fmt.Fprintf(os.Stderr, "  `xdr:\"alias\"`       - type alias with automatic type inference (Go type must be: string, []byte, uint32, uint64, int32, int64, bool)\n")
 		fmt.Fprintf(os.Stderr, "  `xdr:\"-\"`          - exclude field from encoding/decoding\n\n")
 		fmt.Fprintf(os.Stderr, "Output:\n")
 		fmt.Fprintf(os.Stderr, "  Creates <input>_xdr.go with generated Encode/Decode methods\n")

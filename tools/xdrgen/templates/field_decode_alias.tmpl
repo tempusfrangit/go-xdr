@@ -2,4 +2,4 @@
 	if err != nil {
 		return fmt.Errorf("failed to decode {{.FieldName}}: %w", err)
 	}
-		v.{{.FieldName}} = {{.AliasType}}({{.FieldName}}Tmp)
+	v.{{.FieldName}} = {{.AliasType}}({{.FieldName}}Tmp)

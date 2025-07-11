@@ -17,13 +17,13 @@ type TestIsActive bool
 
 // Test struct using alias types
 type TestUser struct {
-	ID       TestUserID     `xdr:"alias:string"`
-	Session  TestSessionID  `xdr:"alias:bytes"`
-	Status   TestStatusCode `xdr:"alias:uint32"`
-	Flags    TestFlags      `xdr:"alias:uint64"`
-	Priority TestPriority   `xdr:"alias:int32"`
-	Created  TestTimestamp  `xdr:"alias:int64"`
-	Active   TestIsActive   `xdr:"alias:bool"`
+	ID       TestUserID     `xdr:"alias"`
+	Session  TestSessionID  `xdr:"alias"`
+	Status   TestStatusCode `xdr:"alias"`
+	Flags    TestFlags      `xdr:"alias"`
+	Priority TestPriority   `xdr:"alias"`
+	Created  TestTimestamp  `xdr:"alias"`
+	Active   TestIsActive   `xdr:"alias"`
 }
 
 func TestAliasRoundTrip(t *testing.T) {

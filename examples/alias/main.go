@@ -1,6 +1,6 @@
 package main
 
-//go:generate go run ../../tools/xdrgen/main.go $GOFILE
+//go:generate go run ../../tools/xdrgen/main.go main.go
 
 import (
 	"fmt"
@@ -19,13 +19,13 @@ type IsActive bool
 
 // Example struct using alias types
 type User struct {
-	ID       UserID     `xdr:"alias:string"`
-	Session  SessionID  `xdr:"alias:bytes"`
-	Status   StatusCode `xdr:"alias:uint32"`
-	Flags    Flags      `xdr:"alias:uint64"`
-	Priority Priority   `xdr:"alias:int32"`
-	Created  Timestamp  `xdr:"alias:int64"`
-	Active   IsActive   `xdr:"alias:bool"`
+	ID       UserID     `xdr:"alias"`
+	Session  SessionID  `xdr:"alias"`
+	Status   StatusCode `xdr:"alias"`
+	Flags    Flags      `xdr:"alias"`
+	Priority Priority   `xdr:"alias"`
+	Created  Timestamp  `xdr:"alias"`
+	Active   IsActive   `xdr:"alias"`
 }
 
 // Ensure User implements Codec interface
