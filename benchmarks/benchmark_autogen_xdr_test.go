@@ -61,8 +61,10 @@ func (v *BenchmarkPerson) Decode(dec *xdr.Decoder) error {
 
 	return nil
 }
+
 // Compile-time assertion that BenchmarkPerson implements xdr.Codec
 var _ xdr.Codec = (*BenchmarkPerson)(nil)
+
 func (v *BenchmarkCompany) Encode(enc *xdr.Encoder) error {
 
 	if err := enc.EncodeString(v.Name); err != nil {
@@ -119,8 +121,10 @@ func (v *BenchmarkCompany) Decode(dec *xdr.Decoder) error {
 
 	return nil
 }
+
 // Compile-time assertion that BenchmarkCompany implements xdr.Codec
 var _ xdr.Codec = (*BenchmarkCompany)(nil)
+
 func (v *BenchmarkConfig) Encode(enc *xdr.Encoder) error {
 
 	if err := enc.EncodeString(v.Host); err != nil {
@@ -201,8 +205,10 @@ func (v *BenchmarkConfig) Decode(dec *xdr.Decoder) error {
 
 	return nil
 }
+
 // Compile-time assertion that BenchmarkConfig implements xdr.Codec
 var _ xdr.Codec = (*BenchmarkConfig)(nil)
+
 func (v *BenchmarkResult) Encode(enc *xdr.Encoder) error {
 
 	if err := enc.EncodeUint32(v.Status); err != nil {
@@ -219,7 +225,6 @@ func (v *BenchmarkResult) Encode(enc *xdr.Encoder) error {
 
 	default:
 		// void case - no data
-
 
 	}
 
@@ -246,13 +251,14 @@ func (v *BenchmarkResult) Decode(dec *xdr.Decoder) error {
 	default:
 		// void case - no data
 
-
 	}
 
 	return nil
 }
+
 // Compile-time assertion that BenchmarkResult implements xdr.Codec
 var _ xdr.Codec = (*BenchmarkResult)(nil)
+
 func (v *BenchmarkMessage) Encode(enc *xdr.Encoder) error {
 
 	if err := enc.EncodeUint32(v.Type); err != nil {
@@ -274,7 +280,6 @@ func (v *BenchmarkMessage) Encode(enc *xdr.Encoder) error {
 
 	default:
 		// void case - no data
-
 
 	}
 
@@ -308,13 +313,14 @@ func (v *BenchmarkMessage) Decode(dec *xdr.Decoder) error {
 	default:
 		// void case - no data
 
-
 	}
 
 	return nil
 }
+
 // Compile-time assertion that BenchmarkMessage implements xdr.Codec
 var _ xdr.Codec = (*BenchmarkMessage)(nil)
+
 func (v *BenchmarkOperation) Encode(enc *xdr.Encoder) error {
 
 	if err := enc.EncodeUint32(v.OpType); err != nil {
@@ -334,7 +340,6 @@ func (v *BenchmarkOperation) Encode(enc *xdr.Encoder) error {
 
 	case 3:
 		// void case - no data
-
 
 	default:
 		// unknown discriminant - encode nothing
@@ -367,7 +372,6 @@ func (v *BenchmarkOperation) Decode(dec *xdr.Decoder) error {
 	case 3:
 		// void case - no data
 
-
 	default:
 		// unknown discriminant - decode nothing
 
@@ -375,5 +379,6 @@ func (v *BenchmarkOperation) Decode(dec *xdr.Decoder) error {
 
 	return nil
 }
+
 // Compile-time assertion that BenchmarkOperation implements xdr.Codec
 var _ xdr.Codec = (*BenchmarkOperation)(nil)
