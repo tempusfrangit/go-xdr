@@ -62,6 +62,9 @@ var templateFuncs = template.FuncMap{
 		return strings.ToLower(s[:1]) + s[1:]
 	},
 	"trimPrefix": strings.TrimPrefix,
+	"hasPrefix":  strings.HasPrefix,
+	"hasSuffix":  strings.HasSuffix,
+	"ne":         func(a, b string) bool { return a != b },
 }
 
 // Template manager
@@ -348,12 +351,11 @@ func generateBasicDecodeCode(field FieldInfo) (string, error) {
 
 		// Handle fixed-size byte arrays specially
 		if strings.HasPrefix(underlyingType, "fixed:") {
-			size := strings.TrimPrefix(underlyingType, "fixed:")
-			return fmt.Sprintf(`%sTmp, err := dec.DecodeFixedBytes(%s)
-	if err != nil {
-		return fmt.Errorf("failed to decode %s: %%w", err)
-	}
-	v.%s = %s(%sTmp)`, field.Name, size, field.Name, field.Name, field.Type, field.Name), nil
+			data := FieldData{
+				FieldName:      field.Name,
+				UnderlyingType: goTypeForXDRType(underlyingType),
+			}
+			return templateManager.ExecuteTemplate("field_decode_alias", data)
 		}
 
 		data := FieldData{

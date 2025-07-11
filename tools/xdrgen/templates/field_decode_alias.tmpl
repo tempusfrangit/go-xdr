@@ -1,5 +1,11 @@
-{{.FieldName}}Tmp, err := dec.{{.DecodeMethod}}()
-	if err != nil {
-		return fmt.Errorf("failed to decode {{.FieldName}}: %w", err)
-	}
-	v.{{.FieldName}} = {{.AliasType}}({{.FieldName}}Tmp)
+{{- if and (hasPrefix .UnderlyingType "[") (hasSuffix .UnderlyingType "]byte") (ne .UnderlyingType "[]byte") }}
+if err := dec.DecodeFixedBytesInto(v.{{ .FieldName }}[:]); err != nil {
+	return fmt.Errorf("failed to decode {{ .FieldName }}: %w", err)
+}
+{{- else }}
+{{ .FieldName }}Tmp, err := dec.{{ .DecodeMethod }}()
+if err != nil {
+	return fmt.Errorf("failed to decode {{ .FieldName }}: %w", err)
+}
+v.{{ .FieldName }} = {{ .AliasType }}({{ .FieldName }}Tmp)
+{{- end }}

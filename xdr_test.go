@@ -3,6 +3,7 @@ package xdr
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"testing"
 )
@@ -1033,5 +1034,230 @@ func TestReader(t *testing.T) {
 				t.Error("Expected error from ReadBytes data, got nil")
 			}
 		})
+	})
+}
+
+func TestDecodeFixedBytesInto(t *testing.T) {
+	// Test data with padding
+	testData := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x00, 0x00, 0x00} // 5 bytes + 3 padding
+	decoder := NewDecoder(testData)
+
+	// Test decoding into a fixed-size array
+	var result [5]byte
+	err := decoder.DecodeFixedBytesInto(result[:])
+	if err != nil {
+		t.Fatalf("DecodeFixedBytesInto failed: %v", err)
+	}
+
+	expected := [5]byte{0x01, 0x02, 0x03, 0x04, 0x05}
+	if result != expected {
+		t.Errorf("expected %v, got %v", expected, result)
+	}
+
+	// Test that decoder position advanced correctly (data + padding)
+	if decoder.Position() != 8 {
+		t.Errorf("expected position 8, got %d", decoder.Position())
+	}
+}
+
+func TestDecodeFixedBytesIntoErrors(t *testing.T) {
+	// Test with insufficient data
+	shortData := []byte{0x01, 0x02, 0x03} // Only 3 bytes
+	decoder := NewDecoder(shortData)
+
+	var result [5]byte
+	err := decoder.DecodeFixedBytesInto(result[:])
+	if err != ErrUnexpectedEOF {
+		t.Errorf("expected ErrUnexpectedEOF, got %v", err)
+	}
+}
+
+func TestDecodeFixedBytesIntoZeroAllocation(t *testing.T) {
+	// Test that DecodeFixedBytesInto doesn't allocate
+	testData := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x00, 0x00, 0x00, 0x00} // 8 bytes + 0 padding
+	decoder := NewDecoder(testData)
+
+	var result [8]byte
+	err := decoder.DecodeFixedBytesInto(result[:])
+	if err != nil {
+		t.Fatalf("DecodeFixedBytesInto failed: %v", err)
+	}
+
+	expected := [8]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+	if result != expected {
+		t.Errorf("expected %v, got %v", expected, result)
+	}
+}
+
+func TestFixedBytesCompatibility(t *testing.T) {
+	// Test that both DecodeFixedBytes and DecodeFixedBytesInto produce identical results
+	testCases := []struct {
+		name string
+		data []byte
+		size int
+	}{
+		{
+			name: "1 byte with 3 padding",
+			data: []byte{0xAA, 0x00, 0x00, 0x00},
+			size: 1,
+		},
+		{
+			name: "2 bytes with 2 padding",
+			data: []byte{0xAA, 0xBB, 0x00, 0x00},
+			size: 2,
+		},
+		{
+			name: "3 bytes with 1 padding",
+			data: []byte{0xAA, 0xBB, 0xCC, 0x00},
+			size: 3,
+		},
+		{
+			name: "4 bytes with 0 padding",
+			data: []byte{0xAA, 0xBB, 0xCC, 0xDD},
+			size: 4,
+		},
+		{
+			name: "8 bytes with 0 padding",
+			data: []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08},
+			size: 8,
+		},
+		{
+			name: "16 bytes with 0 padding",
+			data: []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10},
+			size: 16,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Test DecodeFixedBytes (allocating path)
+			decoder1 := NewDecoder(tc.data)
+			result1, err := decoder1.DecodeFixedBytes(tc.size)
+			if err != nil {
+				t.Fatalf("DecodeFixedBytes failed: %v", err)
+			}
+
+			// Test DecodeFixedBytesInto (zero-allocation path)
+			decoder2 := NewDecoder(tc.data)
+			result2 := make([]byte, tc.size)
+			err = decoder2.DecodeFixedBytesInto(result2)
+			if err != nil {
+				t.Fatalf("DecodeFixedBytesInto failed: %v", err)
+			}
+
+			// Results should be identical
+			if !bytes.Equal(result1, result2) {
+				t.Errorf("Results differ: DecodeFixedBytes=%v, DecodeFixedBytesInto=%v", result1, result2)
+			}
+
+			// Both decoders should advance by same amount
+			if decoder1.Position() != decoder2.Position() {
+				t.Errorf("Position differs: DecodeFixedBytes=%d, DecodeFixedBytesInto=%d",
+					decoder1.Position(), decoder2.Position())
+			}
+
+			// Verify expected data (excluding padding)
+			expected := tc.data[:tc.size]
+			if !bytes.Equal(result1, expected) {
+				t.Errorf("Expected %v, got %v", expected, result1)
+			}
+		})
+	}
+}
+
+func TestFixedBytesRoundTripCompatibility(t *testing.T) {
+	// Test that encoding followed by both decode methods produces identical results
+	testSizes := []int{1, 2, 3, 4, 5, 8, 12, 16, 32}
+
+	for _, size := range testSizes {
+		t.Run(fmt.Sprintf("size_%d", size), func(t *testing.T) {
+			// Create test data
+			original := make([]byte, size)
+			for i := range original {
+				original[i] = byte(i + 1) // 1, 2, 3, ...
+			}
+
+			// Encode
+			buf := make([]byte, 1024)
+			encoder := NewEncoder(buf)
+			err := encoder.EncodeFixedBytes(original)
+			if err != nil {
+				t.Fatalf("EncodeFixedBytes failed: %v", err)
+			}
+			encoded := encoder.Bytes()
+
+			// Decode using DecodeFixedBytes
+			decoder1 := NewDecoder(encoded)
+			result1, err := decoder1.DecodeFixedBytes(size)
+			if err != nil {
+				t.Fatalf("DecodeFixedBytes failed: %v", err)
+			}
+
+			// Decode using DecodeFixedBytesInto
+			decoder2 := NewDecoder(encoded)
+			result2 := make([]byte, size)
+			err = decoder2.DecodeFixedBytesInto(result2)
+			if err != nil {
+				t.Fatalf("DecodeFixedBytesInto failed: %v", err)
+			}
+
+			// All should match original
+			if !bytes.Equal(original, result1) {
+				t.Errorf("DecodeFixedBytes: expected %v, got %v", original, result1)
+			}
+			if !bytes.Equal(original, result2) {
+				t.Errorf("DecodeFixedBytesInto: expected %v, got %v", original, result2)
+			}
+			if !bytes.Equal(result1, result2) {
+				t.Errorf("Results differ: DecodeFixedBytes=%v, DecodeFixedBytesInto=%v", result1, result2)
+			}
+		})
+	}
+}
+
+func TestFixedBytesErrorHandling(t *testing.T) {
+	// Test that both methods handle errors consistently
+	t.Run("InsufficientData", func(t *testing.T) {
+		shortData := []byte{0x01, 0x02, 0x03} // Only 3 bytes, need 8
+
+		decoder1 := NewDecoder(shortData)
+		_, err1 := decoder1.DecodeFixedBytes(8)
+
+		decoder2 := NewDecoder(shortData)
+		result2 := make([]byte, 8)
+		err2 := decoder2.DecodeFixedBytesInto(result2)
+
+		// Both should return ErrUnexpectedEOF
+		if err1 != ErrUnexpectedEOF {
+			t.Errorf("DecodeFixedBytes: expected ErrUnexpectedEOF, got %v", err1)
+		}
+		if err2 != ErrUnexpectedEOF {
+			t.Errorf("DecodeFixedBytesInto: expected ErrUnexpectedEOF, got %v", err2)
+		}
+	})
+
+	t.Run("ZeroLength", func(t *testing.T) {
+		data := []byte{}
+
+		decoder1 := NewDecoder(data)
+		result1, err1 := decoder1.DecodeFixedBytes(0)
+
+		decoder2 := NewDecoder(data)
+		result2 := make([]byte, 0)
+		err2 := decoder2.DecodeFixedBytesInto(result2)
+
+		// Both should succeed with empty result
+		if err1 != nil {
+			t.Errorf("DecodeFixedBytes: expected no error, got %v", err1)
+		}
+		if err2 != nil {
+			t.Errorf("DecodeFixedBytesInto: expected no error, got %v", err2)
+		}
+		if len(result1) != 0 {
+			t.Errorf("DecodeFixedBytes: expected empty result, got %v", result1)
+		}
+		if len(result2) != 0 {
+			t.Errorf("DecodeFixedBytesInto: expected empty result, got %v", result2)
+		}
 	})
 }

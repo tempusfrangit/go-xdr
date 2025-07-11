@@ -279,6 +279,92 @@ func BenchmarkDecodeFixedBytes(b *testing.B) {
 	}
 }
 
+func BenchmarkDecodeFixedBytesInto(b *testing.B) {
+	buf := make([]byte, 64*1024) // 64KB buffer
+	encoder := NewEncoder(buf)
+
+	sizes := []int{1, 4, 16, 64, 256, 1024, 4096, 16384}
+
+	for _, size := range sizes {
+		data := make([]byte, size)
+		rand.Read(data)
+
+		encoder.Reset(buf)
+		encoder.EncodeFixedBytes(data)
+		encodedData := make([]byte, len(encoder.Bytes()))
+		copy(encodedData, encoder.Bytes())
+
+		// Pre-allocate destination buffer once
+		dst := make([]byte, size)
+
+		b.Run(string(rune(size))+"_bytes", func(b *testing.B) {
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				decoder := NewDecoder(encodedData)
+				decoder.DecodeFixedBytesInto(dst)
+			}
+			b.SetBytes(int64(size))
+		})
+	}
+}
+
+func BenchmarkDecodeFixedBytesComparison(b *testing.B) {
+	// Direct comparison between allocation vs zero-allocation approaches
+	// Using a realistic 16-byte hash size
+	testData := make([]byte, 16)
+	rand.Read(testData)
+
+	buf := make([]byte, 64)
+	encoder := NewEncoder(buf)
+	encoder.EncodeFixedBytes(testData)
+	encodedData := make([]byte, len(encoder.Bytes()))
+	copy(encodedData, encoder.Bytes())
+
+	b.Run("DecodeFixedBytes_allocating", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			decoder := NewDecoder(encodedData)
+			_, err := decoder.DecodeFixedBytes(16)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+		b.SetBytes(16)
+	})
+
+	// Pre-allocate destination buffer for zero-allocation path
+	dst := make([]byte, 16)
+	b.Run("DecodeFixedBytesInto_zero_alloc", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			decoder := NewDecoder(encodedData)
+			err := decoder.DecodeFixedBytesInto(dst)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+		b.SetBytes(16)
+	})
+
+	// Realistic scenario: decode into a struct field (simulating generated code)
+	type TestStruct struct {
+		Hash [16]byte
+	}
+	var testStruct TestStruct
+
+	b.Run("DecodeFixedBytesInto_struct_field", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			decoder := NewDecoder(encodedData)
+			err := decoder.DecodeFixedBytesInto(testStruct.Hash[:])
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+		b.SetBytes(16)
+	})
+}
+
 func BenchmarkRoundTrip(b *testing.B) {
 	buf := make([]byte, 1024)
 	encoder := NewEncoder(buf)

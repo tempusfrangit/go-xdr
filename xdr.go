@@ -225,6 +225,25 @@ func (d *Decoder) DecodeFixedBytes(length int) ([]byte, error) {
 	return data, nil
 }
 
+// DecodeFixedBytesInto decodes a fixed-length byte array directly into the provided buffer
+// This method provides zero-allocation decoding for fixed-size arrays
+func (d *Decoder) DecodeFixedBytesInto(dst []byte) error {
+	length := len(dst)
+	// Calculate total length including padding
+	padLen := (4 - (length % 4)) % 4
+	totalLen := length + padLen
+
+	if d.pos+totalLen > len(d.buf) {
+		return ErrUnexpectedEOF
+	}
+
+	// Copy data directly into the provided buffer
+	copy(dst, d.buf[d.pos:d.pos+length])
+	d.pos += totalLen // Skip data and padding
+
+	return nil
+}
+
 // DecodeString decodes a string
 func (d *Decoder) DecodeString() (string, error) {
 	data, err := d.DecodeBytes()
