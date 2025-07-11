@@ -28,6 +28,12 @@ This directory contains comprehensive examples demonstrating different aspects o
 - Validation and data transformation
 - **Best for**: Advanced customization and legacy compatibility
 
+### 5. [alias](alias/) - Type Aliases
+- Type-safe aliases for primitive types
+- Zero-allocation type conversions
+- Compile-time type safety
+- **Best for**: Preventing type mixing and improving code clarity
+
 ## Running Examples
 
 Each example is self-contained with its own `go.mod` file. To run any example:
@@ -54,6 +60,7 @@ This integrates with Go's standard tooling and doesn't require custom build syst
 2. **Try autogen** - See how struct tags simplify development
 3. **Explore discriminated-union** - Understand variant types for protocols
 4. **Study mixed-manual** - Learn advanced customization techniques
+5. **Learn alias** - Use type aliases for better type safety
 
 ## Common Patterns
 
