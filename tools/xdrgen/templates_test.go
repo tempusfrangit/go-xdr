@@ -79,7 +79,7 @@ func TestTemplateManagerExecuteNonExistent(t *testing.T) {
 }
 
 func TestGenerateFileHeader(t *testing.T) {
-	result, err := GenerateFileHeader("test.go", "testpkg", []string{"fmt", "strings"})
+	result, err := GenerateFileHeader("test.go", "testpkg", []string{"fmt", "strings"}, []string{})
 	if err != nil {
 		t.Fatalf("GenerateFileHeader failed: %v", err)
 	}
@@ -94,12 +94,31 @@ func TestGenerateFileHeader(t *testing.T) {
 }
 
 func TestGenerateFileHeaderNoImports(t *testing.T) {
-	result, err := GenerateFileHeader("test.go", "testpkg", []string{})
+	result, err := GenerateFileHeader("test.go", "testpkg", []string{}, []string{})
 	if err != nil {
 		t.Fatalf("GenerateFileHeader failed: %v", err)
 	}
 
 	// Should work with no external imports
+	if !strings.Contains(result, "testpkg") {
+		t.Error("Result should contain package name")
+	}
+}
+
+func TestGenerateFileHeaderWithBuildTags(t *testing.T) {
+	buildTags := []string{"//go:build bench", "// +build bench"}
+	result, err := GenerateFileHeader("test.go", "testpkg", []string{}, buildTags)
+	if err != nil {
+		t.Fatalf("GenerateFileHeader failed: %v", err)
+	}
+
+	// Should contain build tags
+	if !strings.Contains(result, "//go:build bench") {
+		t.Error("Result should contain go:build directive")
+	}
+	if !strings.Contains(result, "// +build bench") {
+		t.Error("Result should contain +build directive")
+	}
 	if !strings.Contains(result, "testpkg") {
 		t.Error("Result should contain package name")
 	}

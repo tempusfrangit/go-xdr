@@ -315,6 +315,43 @@ func extractReceiverType(expr ast.Expr) string {
 	}
 }
 
+// extractBuildTags extracts build tags from a Go source file
+func extractBuildTags(filename string) ([]string, error) {
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	var buildTags []string
+	lines := strings.Split(string(content), "\n")
+	
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		
+		// Check for //go:build directive
+		if strings.HasPrefix(line, "//go:build ") {
+			buildTags = append(buildTags, line)
+			continue
+		}
+		
+		// Check for // +build directive
+		if strings.HasPrefix(line, "// +build ") {
+			buildTags = append(buildTags, line)
+			continue
+		}
+		
+		// If we hit a non-comment/non-blank line, stop looking
+		if !strings.HasPrefix(line, "//") {
+			break
+		}
+	}
+	
+	return buildTags, nil
+}
+
 // parseFile parses a Go file and extracts structs that have go:generate xdrgen directives
 func parseFile(filename string) ([]TypeInfo, error) {
 	fset := token.NewFileSet()
@@ -572,11 +609,20 @@ func main() {
 	// Collect external package dependencies
 	externalImports := collectExternalImports(types)
 
+	// Extract build tags from input file
+	buildTags, err := extractBuildTags(inputFile)
+	if err != nil {
+		log.Fatal("Error extracting build tags:", err)
+	}
+	if len(buildTags) > 0 {
+		logf("Found build tags: %v", buildTags)
+	}
+
 	// Generate the output file using templates
 	var output strings.Builder
 
 	// Generate file header
-	header, err := GenerateFileHeader(filepath.Base(inputFile), file.Name.Name, externalImports)
+	header, err := GenerateFileHeader(filepath.Base(inputFile), file.Name.Name, externalImports, buildTags)
 	if err != nil {
 		log.Fatal("Error generating file header:", err)
 	}

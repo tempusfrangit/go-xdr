@@ -18,6 +18,7 @@ type FileData struct {
 	PackageName     string
 	ExternalImports []string
 	Types           []TypeData
+	BuildTags       []string
 }
 
 type TypeData struct {
@@ -102,7 +103,7 @@ func (tm *TemplateManager) GetTemplate(name string) (*template.Template, bool) {
 }
 
 // ExecuteTemplate executes a template with the given data
-func (tm *TemplateManager) ExecuteTemplate(name string, data interface{}) (string, error) {
+func (tm *TemplateManager) ExecuteTemplate(name string, data any) (string, error) {
 	tmpl, exists := tm.GetTemplate(name)
 	if !exists {
 		return "", fmt.Errorf("template %s not found", name)
@@ -128,12 +129,13 @@ func init() {
 // Template-based code generation functions
 
 // GenerateFileHeader generates the file header using templates
-func GenerateFileHeader(sourceFile, packageName string, externalImports []string) (string, error) {
+func GenerateFileHeader(sourceFile, packageName string, externalImports []string, buildTags []string) (string, error) {
 	data := FileData{
 		SourceFile:      sourceFile,
 		Timestamp:       time.Now().Format(time.RFC3339),
 		PackageName:     packageName,
 		ExternalImports: externalImports,
+		BuildTags:       buildTags,
 	}
 	return templateManager.ExecuteTemplate("file_header", data)
 }
