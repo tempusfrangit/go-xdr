@@ -86,9 +86,3 @@ linters:
       - third_party$
       - builtin$
       - examples$
-exclusions:
-  generated: lax
-  paths:
-    - third_party$
-    - builtin$
-    - examples$
