@@ -39,6 +39,11 @@ type FieldData struct {
 	HasDefaultCase    bool
 	ElementEncodeCode string
 	ElementDecodeCode string
+	// Alias-specific fields
+	UnderlyingType string
+	AliasType      string
+	EncodeMethod   string
+	DecodeMethod   string
 }
 
 type UnionCaseData struct {
@@ -259,6 +264,22 @@ func generateBasicEncodeCode(field FieldInfo) (string, error) {
 		return templateManager.ExecuteTemplate("array_encode", data)
 	}
 
+	// Handle alias types specially
+	if strings.HasPrefix(field.XDRType, "alias:") {
+		// Extract the underlying type from the alias specification
+		underlyingType := strings.TrimPrefix(field.XDRType, "alias:")
+		encodeMethod := getEncodeMethod(underlyingType)
+		if encodeMethod == "" {
+			return "", fmt.Errorf("unsupported underlying type for alias: %s", underlyingType)
+		}
+		data := FieldData{
+			FieldName:      field.Name,
+			UnderlyingType: goTypeForXDRType(underlyingType),
+			EncodeMethod:   encodeMethod,
+		}
+		return templateManager.ExecuteTemplate("field_encode_alias", data)
+	}
+
 	method := getEncodeMethod(field.XDRType)
 	if method == "" {
 		return "", fmt.Errorf("unsupported XDR type for encoding: %s", field.XDRType)
@@ -290,6 +311,23 @@ func generateBasicDecodeCode(field FieldInfo) (string, error) {
 			ElementType: elementType,
 		}
 		return templateManager.ExecuteTemplate("array_decode", data)
+	}
+
+	// Handle alias types specially
+	if strings.HasPrefix(field.XDRType, "alias:") {
+		// Extract the underlying type from the alias specification
+		underlyingType := strings.TrimPrefix(field.XDRType, "alias:")
+		decodeMethod := getDecodeMethod(underlyingType)
+		if decodeMethod == "" {
+			return "", fmt.Errorf("unsupported underlying type for alias: %s", underlyingType)
+		}
+		data := FieldData{
+			FieldName:      field.Name,
+			UnderlyingType: goTypeForXDRType(underlyingType),
+			AliasType:      field.Type,
+			DecodeMethod:   decodeMethod,
+		}
+		return templateManager.ExecuteTemplate("field_decode_alias", data)
 	}
 
 	method := getDecodeMethod(field.XDRType)
@@ -429,6 +467,8 @@ func getEncodeMethod(xdrType string) string {
 		return "EncodeUint32"
 	case "uint64":
 		return "EncodeUint64"
+	case "int32":
+		return "EncodeInt32"
 	case "int64":
 		return "EncodeInt64"
 	case "string":
@@ -444,6 +484,28 @@ func getEncodeMethod(xdrType string) string {
 	}
 }
 
+// goTypeForXDRType converts XDR type names to Go type names
+func goTypeForXDRType(xdrType string) string {
+	switch xdrType {
+	case "string":
+		return "string"
+	case "bytes":
+		return "[]byte"
+	case "uint32":
+		return "uint32"
+	case "uint64":
+		return "uint64"
+	case "int32":
+		return "int32"
+	case "int64":
+		return "int64"
+	case "bool":
+		return "bool"
+	default:
+		panic("unsupported alias type: " + xdrType)
+	}
+}
+
 // getDecodeMethod returns the appropriate decoder method for an XDR type
 func getDecodeMethod(xdrType string) string {
 	switch xdrType {
@@ -451,6 +513,8 @@ func getDecodeMethod(xdrType string) string {
 		return "DecodeUint32"
 	case "uint64":
 		return "DecodeUint64"
+	case "int32":
+		return "DecodeInt32"
 	case "int64":
 		return "DecodeInt64"
 	case "string":
