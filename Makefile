@@ -1,6 +1,6 @@
 # XDR-Go Build System
 
-.PHONY: build test clean install xdrgen
+.PHONY: build test clean install xdrgen generate-test generate-all
 
 # Build the xdrgen binary
 build: xdrgen
@@ -12,16 +12,34 @@ xdrgen: bin
 install:
 	cd tools/xdrgen && go install .
 
+# Generate XDR code for test files
+generate-test:
+	@echo "Generating XDR code for test files..."
+	@if [ -f xdr_alias_test.go ]; then \
+		echo "Generating for xdr_alias_test.go..."; \
+		./bin/xdrgen xdr_alias_test.go; \
+	fi
+	@if [ -f benchmarks/benchmark_autogen_test.go ]; then \
+		echo "Generating for benchmarks/benchmark_autogen_test.go..."; \
+		./bin/xdrgen benchmarks/benchmark_autogen_test.go; \
+	fi
+
+# Generate XDR code for all files (regular + test files)
+generate-all:
+	@echo "Generating XDR code for all files..."
+	@go generate ./...
+	@$(MAKE) generate-test
+
 # Run tests
-test:
+test: generate-test
 	go test -v ./...
 
 # Run tests with race detection
-test-race:
+test-race: generate-test
 	go test -race -v ./...
 
 # Run benchmarks (with build tags)
-bench:
+bench: generate-test
 	go test -tags=bench -bench=. -benchmem ./...
 
 # Clean build artifacts

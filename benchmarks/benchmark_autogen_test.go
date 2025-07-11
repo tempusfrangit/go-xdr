@@ -3,8 +3,6 @@
 
 package xdr_bench
 
-//go:generate ./bin/xdrgen $GOFILE
-
 import (
 	"testing"
 

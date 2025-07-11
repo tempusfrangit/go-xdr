@@ -355,6 +355,9 @@ func extractBuildTags(filename string) ([]string, error) {
 // parseFile parses a Go file and extracts structs that have go:generate xdrgen directives
 func parseFile(filename string) ([]TypeInfo, error) {
 	fset := token.NewFileSet()
+
+	// For files with build tags, we need to parse them with the appropriate build context
+	// For now, we'll parse all files regardless of build tags to ensure we don't miss any
 	file, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
 	if err != nil {
 		return nil, err
@@ -400,6 +403,12 @@ func parseFile(filename string) ([]TypeInfo, error) {
 		if hasGOFILEDirective {
 			break
 		}
+	}
+
+	// If no go:generate directive found, process all structs with XDR tags
+	// This allows processing test files and other files without explicit directives
+	if !hasGOFILEDirective && len(structsToGenerate) == 0 {
+		hasGOFILEDirective = true
 	}
 
 	ast.Inspect(file, func(n ast.Node) bool {

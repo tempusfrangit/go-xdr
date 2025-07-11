@@ -1,7 +1,5 @@
 package xdr_test
 
-//go:generate go run ../tools/xdrgen/main.go $GOFILE
-
 import (
 	"testing"
 
