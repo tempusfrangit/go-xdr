@@ -4,7 +4,6 @@ on:
   push:
     branches: [ main ]
   pull_request:
-    branches: [ main ]
 
 jobs:
   test:
@@ -42,36 +41,6 @@ jobs:
     - name: Run benchmarks
       run: go test -bench=. -benchmem ./...
 
-  format-check:
-    needs: lint
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        go-version: ['1.18', '1.24']
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: ${{ matrix.go-version }}
-    
-    - name: Check gofmt
-      run: |
-        if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
-          echo "The following files are not formatted:"
-          gofmt -s -l .
-          exit 1
-        fi
-    
-    - name: Check gci (import formatting)
-      run: |
-        go run github.com/daixiang0/gci@latest diff --skip-generated -s standard -s default -s "prefix(github.com/tempusfrangit/go-xdr)" .
-        if [ $? -ne 0 ]; then
-          echo "Import formatting is not correct. Run 'make format-imports' to fix."
-          exit 1
-        fi
-
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -82,11 +51,24 @@ jobs:
       with:
         go-version: '1.18'
     
+    - name: Run gci and check for unformatted files
+      run: |
+        go install github.com/daixiang0/gci@latest
+        "$(go env GOPATH)/bin/gci" write \
+          --skip-generated \
+          -s standard \
+          -s default \
+          -s "prefix(github.com/tempusfrangit/xdr-go)" \
+          .
+        if ! git diff --exit-code; then
+          echo "Code is not formatted. Run 'gci write .' locally to fix."
+          exit 1
+        fi
+    
     - name: Run golangci-lint
       uses: golangci/golangci-lint-action@v8.0.0
       with:
         version: latest
-        args: --timeout=5m
 
   build:
     needs: lint

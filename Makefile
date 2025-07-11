@@ -20,9 +20,9 @@ test:
 test-race:
 	go test -race -v ./...
 
-# Run benchmarks
+# Run benchmarks (with build tags)
 bench:
-	go test -bench=. -benchmem ./...
+	go test -tags=bench -bench=. -benchmem ./...
 
 # Clean build artifacts
 clean:
@@ -32,28 +32,24 @@ clean:
 bin:
 	mkdir -p bin
 
-# Format code
-fmt:
-	go fmt ./...
+# Format code with gci (comprehensive formatting)
+format:
+	@go run github.com/daixiang0/gci@latest write --skip-generated -s standard -s default ./...
 
-# Format imports with gci
-format-imports:
-	go run github.com/daixiang0/gci@latest write --skip-generated -s standard -s default -s "prefix(github.com/tempusfrangit/go-xdr)" .
-
-# Check import formatting
-check-imports:
-	go run github.com/daixiang0/gci@latest diff --skip-generated -s standard -s default -s "prefix(github.com/tempusfrangit/go-xdr)" .
+# Check code formatting with gci
+check-format:
+	@go run github.com/daixiang0/gci@latest diff --skip-generated -s standard -s default ./...
 
 # Vet code
 vet:
 	go vet ./...
 
-# Lint code (requires golangci-lint)
+# Lint code with golangci-lint v2
 lint:
-	golangci-lint run
+	@go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run --timeout=5m
 
 # Run all checks
-check: fmt format-imports vet test-race
+check: check-format vet test-race
 
 # Build all platforms for release
 build-all: bin
@@ -64,7 +60,7 @@ build-all: bin
 	cd tools/xdrgen && GOOS=windows GOARCH=amd64 go build -o ../../bin/xdrgen-windows-amd64.exe .
 
 # Development workflow
-dev: fmt vet test
+dev: format vet test
 
 # CI workflow
-ci: fmt format-imports vet test-race lint
+ci: check-format vet test-race lint

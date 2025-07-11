@@ -324,31 +324,31 @@ func extractBuildTags(filename string) ([]string, error) {
 
 	var buildTags []string
 	lines := strings.Split(string(content), "\n")
-	
+
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		
+
 		// Check for //go:build directive
 		if strings.HasPrefix(line, "//go:build ") {
 			buildTags = append(buildTags, line)
 			continue
 		}
-		
+
 		// Check for // +build directive
 		if strings.HasPrefix(line, "// +build ") {
 			buildTags = append(buildTags, line)
 			continue
 		}
-		
+
 		// If we hit a non-comment/non-blank line, stop looking
 		if !strings.HasPrefix(line, "//") {
 			break
 		}
 	}
-	
+
 	return buildTags, nil
 }
 
