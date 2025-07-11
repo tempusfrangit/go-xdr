@@ -9,6 +9,7 @@ builds:
   - id: xdrgen
     main: ./tools/xdrgen
     binary: xdrgen
+    dir: ./tools/xdrgen
     env:
       - CGO_ENABLED=0
     goos:
