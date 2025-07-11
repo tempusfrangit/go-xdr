@@ -1,0 +1,3 @@
+if err := enc.{{.EncodeMethod}}({{.UnderlyingType}}(v.{{.FieldName}})); err != nil {
+	return fmt.Errorf("failed to encode {{.FieldName}}: %w", err)
+}
