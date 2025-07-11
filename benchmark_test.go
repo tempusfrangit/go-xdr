@@ -1,3 +1,6 @@
+//go:build bench
+// +build bench
+
 package xdr
 
 import (
