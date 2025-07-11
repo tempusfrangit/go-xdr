@@ -1,0 +1,121 @@
+name: Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.18', '1.21', '1.22', '1.23', '1.24']
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ matrix.go-version }}
+    
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+    
+    - name: Download dependencies
+      run: go mod download
+    
+    - name: Run tests
+      run: go test -v ./...
+    
+    - name: Run tests with race detection
+      run: go test -race -v ./...
+    
+    - name: Run benchmarks
+      run: go test -bench=. -benchmem ./...
+
+  format-check:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.18', '1.24']
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ matrix.go-version }}
+    
+    - name: Check gofmt
+      run: |
+        if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+          echo "The following files are not formatted:"
+          gofmt -s -l .
+          exit 1
+        fi
+    
+    - name: Check gci (import formatting)
+      run: |
+        go run github.com/daixiang0/gci@latest diff --skip-generated -s standard -s default -s "prefix(github.com/tempusfrangit/go-xdr)" .
+        if [ $? -ne 0 ]; then
+          echo "Import formatting is not correct. Run 'make format-imports' to fix."
+          exit 1
+        fi
+
+  lint:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.18', '1.24']
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ matrix.go-version }}
+    
+    - name: Run golangci-lint
+      uses: golangci/golangci-lint-action@v4
+      with:
+        version: latest
+        args: --timeout=5m
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.18', '1.24']
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ matrix.go-version }}
+    
+    - name: Build xdrgen
+      run: |
+        cd tools/xdrgen
+        go build -o ../../xdrgen .
+    
+    - name: Test xdrgen help
+      run: ./xdrgen --help
+    
+    - name: Test xdrgen on examples
+      run: |
+        cd examples/autogen
+        ../../xdrgen -s types.go
+        if [ ! -f types_xdr.go ]; then
+          echo "xdrgen failed to generate types_xdr.go"
+          exit 1
+        fi
+        go build .

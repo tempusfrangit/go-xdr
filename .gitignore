@@ -1,0 +1,42 @@
+# Allowlisting gitignore template for GO projects prevents us
+# from adding various unwanted local files, such as generated
+# files, developer configurations or IDE-specific files etc.
+#
+# Recommended: Go.AllowList.gitignore
+
+# Ignore everything
+*
+
+# But not these files...
+!/.gitignore
+!/.github/
+!/.github/**/*
+
+!*.go
+!go.sum
+!go.mod
+
+!README.md
+!BENCHMARK.md
+!LICENSE
+!/.goreleaser.yml
+!/.golangci.yml
+
+!Makefile
+
+# Allow everything in examples except generated files
+!/examples/
+!/examples/**/*.go
+!/examples/**/go.mod
+!/examples/**/go.sum
+!/examples/**/README.md
+!/examples/**/Makefile
+# But ignore generated XDR files
+/examples/**/*_xdr.go
+
+# Allow tools directory
+!/tools/
+!/tools/**/*
+
+# ...even if they are in subdirectories
+!*/

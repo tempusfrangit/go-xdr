@@ -1,0 +1,5 @@
+var err error
+		v.{{.FieldName}}, err = dec.DecodeBytes()
+		if err != nil {
+			return fmt.Errorf("failed to decode {{.FieldName}}: %w", err)
+		}

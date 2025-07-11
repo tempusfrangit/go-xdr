@@ -1,0 +1,105 @@
+project_name: go-xdr
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+builds:
+  - id: xdrgen
+    main: ./tools/xdrgen
+    binary: xdrgen
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: default
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "merge conflict"
+      - Merge pull request
+      - Merge branch
+      - go mod tidy
+  groups:
+    - title: Features
+      regexp: "^.*feat[(\\w)]*:+.*$"
+      order: 0
+    - title: Bug fixes
+      regexp: "^.*fix[(\\w)]*:+.*$"
+      order: 1
+    - title: Others
+      order: 999
+
+release:
+  github:
+    owner: tempusfrangit
+    name: go-xdr
+  draft: false
+  prerelease: auto
+  name_template: "{{.ProjectName}}-v{{.Version}}"
+  header: |
+    ## XDR-Go {{.Version}}
+
+    XDR library for Go with discriminated union support.
+
+    ### Installation
+
+    ```bash
+    go install github.com/tempusfrangit/go-xdr/tools/xdrgen@{{.Version}}
+    ```
+
+  footer: |
+    ### Checksums
+
+    All binaries are checksummed and the checksum file is signed.
+
+
+
+brews:
+  - name: xdrgen
+    tap:
+      owner: tempusfrangit
+      name: homebrew-tap
+    folder: Formula
+    homepage: https://github.com/tempusfrangit/go-xdr
+    description: "XDR library and code generator for Go"
+    license: MIT
+    dependencies:
+      - name: go
+        type: optional
+    install: |
+      bin.install "xdrgen"
+    test: |
+      system "#{bin}/xdrgen", "--help"

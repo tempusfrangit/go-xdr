@@ -1,0 +1,14 @@
+if err := enc.EncodeUint32(uint32(len(v.{{.FieldName}}))); err != nil {
+		return fmt.Errorf("failed to encode {{.FieldName}} length: %w", err)
+	}
+	for i, elem := range v.{{.FieldName}} {
+		{{if eq .ElementType "uint32"}}if err := enc.EncodeUint32(elem); err != nil {
+			return fmt.Errorf("failed to encode array element %d: %w", i, err)
+		}{{else if eq .ElementType "uint64"}}if err := enc.EncodeUint64(elem); err != nil {
+			return fmt.Errorf("failed to encode array element %d: %w", i, err)
+		}{{else if eq .ElementType "string"}}if err := enc.EncodeString(elem); err != nil {
+			return fmt.Errorf("failed to encode array element %d: %w", i, err)
+		}{{else}}if err := elem.Encode(enc); err != nil {
+			return fmt.Errorf("failed to encode array element %d: %w", i, err)
+		}{{end}}
+	}

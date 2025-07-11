@@ -1,0 +1,3 @@
+if err := v.{{.FieldName}}.Decode(dec); err != nil {
+		return fmt.Errorf("failed to decode {{.FieldName}}: %w", err)
+	}
