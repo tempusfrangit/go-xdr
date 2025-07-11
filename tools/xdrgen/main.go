@@ -581,7 +581,11 @@ func inferUnderlyingType(goType string) (string, error) {
 	case "bool":
 		return "bool", nil
 	default:
-		return "", fmt.Errorf("unsupported type for alias inference: %s (supported: string, []byte, uint32, uint64, int32, int64, bool)", goType)
+		// Check for fixed-size byte arrays like [16]byte
+		if strings.HasPrefix(goType, "[") && strings.HasSuffix(goType, "]byte") {
+			return "fixed:" + strings.TrimSuffix(strings.TrimPrefix(goType, "["), "]byte"), nil
+		}
+		return "", fmt.Errorf("unsupported type for alias inference: %s (supported: string, []byte, [N]byte, uint32, uint64, int32, int64, bool)", goType)
 	}
 }
 
@@ -611,7 +615,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  `xdr:\"struct\"`     - nested struct (must implement xdr.Codec)\n")
 		fmt.Fprintf(os.Stderr, "  `xdr:\"array\"`      - variable-length array\n")
 		fmt.Fprintf(os.Stderr, "  `xdr:\"fixed:N\"`    - fixed-size byte array (N bytes)\n")
-		fmt.Fprintf(os.Stderr, "  `xdr:\"alias\"`       - type alias with automatic type inference (Go type must be: string, []byte, uint32, uint64, int32, int64, bool)\n")
+		fmt.Fprintf(os.Stderr, "  `xdr:\"alias\"`       - type alias with automatic type inference (Go type must be: string, []byte, [N]byte, uint32, uint64, int32, int64, bool)\n")
 		fmt.Fprintf(os.Stderr, "  `xdr:\"-\"`          - exclude field from encoding/decoding\n\n")
 		fmt.Fprintf(os.Stderr, "Output:\n")
 		fmt.Fprintf(os.Stderr, "  Creates <input>_xdr.go with generated Encode/Decode methods\n")

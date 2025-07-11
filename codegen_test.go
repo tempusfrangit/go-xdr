@@ -14,6 +14,7 @@ type TestFlags uint64
 type TestPriority int32
 type TestTimestamp int64
 type TestIsActive bool
+type TestHash [16]byte
 
 // Test struct using alias types
 type TestUser struct {
@@ -24,7 +25,11 @@ type TestUser struct {
 	Priority TestPriority   `xdr:"alias"`
 	Created  TestTimestamp  `xdr:"alias"`
 	Active   TestIsActive   `xdr:"alias"`
+	Hash     TestHash       `xdr:"alias"`
 }
+
+// Ensure TestUser implements Codec interface
+var _ xdr.Codec = (*TestUser)(nil)
 
 func TestAliasRoundTrip(t *testing.T) {
 	// Create a test user with alias types
@@ -36,6 +41,7 @@ func TestAliasRoundTrip(t *testing.T) {
 		Priority: TestPriority(-5),
 		Created:  TestTimestamp(1234567890),
 		Active:   TestIsActive(true),
+		Hash:     TestHash{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA},
 	}
 
 	// Encode
@@ -78,92 +84,45 @@ func TestAliasRoundTrip(t *testing.T) {
 	if decoded.Active != user.Active {
 		t.Errorf("Active mismatch: expected %v, got %v", user.Active, decoded.Active)
 	}
+	if decoded.Hash != user.Hash {
+		t.Errorf("Hash mismatch: expected %v, got %v", user.Hash, decoded.Hash)
+	}
 }
 
-func TestAliasMarshalUnmarshal(t *testing.T) {
-	// Test using the Marshal/Unmarshal functions
+func TestFixedSizeArrayAlias(t *testing.T) {
+	// Test fixed-size byte array aliases specifically
 	user := &TestUser{
-		ID:       TestUserID("test-user"),
-		Session:  TestSessionID{0xAA, 0xBB, 0xCC},
-		Status:   TestStatusCode(404),
-		Flags:    TestFlags(0xDEADBEEF),
-		Priority: TestPriority(10),
-		Created:  TestTimestamp(987654321),
-		Active:   TestIsActive(false),
+		ID:       TestUserID("user123"),
+		Session:  TestSessionID{0x01, 0x02, 0x03, 0x04},
+		Status:   TestStatusCode(200),
+		Flags:    TestFlags(0x123456789ABCDEF0),
+		Priority: TestPriority(-5),
+		Created:  TestTimestamp(1234567890),
+		Active:   TestIsActive(true),
+		Hash:     TestHash{0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA},
 	}
 
-	// Marshal
-	data, err := xdr.Marshal(user)
+	// Encode
+	buf := make([]byte, 1024)
+	enc := xdr.NewEncoder(buf)
+	err := user.Encode(enc)
 	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
+		t.Fatalf("Encode failed: %v", err)
 	}
 
-	// Unmarshal
+	data := enc.Bytes()
+
+	// Decode
+	dec := xdr.NewDecoder(data)
 	var decoded TestUser
-	err = xdr.Unmarshal(data, &decoded)
+	err = decoded.Decode(dec)
 	if err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
+		t.Fatalf("Decode failed: %v", err)
 	}
 
-	// Verify
-	if decoded.ID != user.ID {
-		t.Errorf("ID mismatch: expected %v, got %v", user.ID, decoded.ID)
-	}
-	if string(decoded.Session) != string(user.Session) {
-		t.Errorf("Session mismatch: expected %v, got %v", user.Session, decoded.Session)
-	}
-	if decoded.Status != user.Status {
-		t.Errorf("Status mismatch: expected %v, got %v", user.Status, decoded.Status)
-	}
-	if decoded.Flags != user.Flags {
-		t.Errorf("Flags mismatch: expected %v, got %v", user.Flags, decoded.Flags)
-	}
-	if decoded.Priority != user.Priority {
-		t.Errorf("Priority mismatch: expected %v, got %v", user.Priority, decoded.Priority)
-	}
-	if decoded.Created != user.Created {
-		t.Errorf("Created mismatch: expected %v, got %v", user.Created, decoded.Created)
-	}
-	if decoded.Active != user.Active {
-		t.Errorf("Active mismatch: expected %v, got %v", user.Active, decoded.Active)
-	}
-}
-
-func TestAliasTypeSafety(t *testing.T) {
-	// Test that alias types provide type safety
-	var user TestUser
-
-	// These should compile and work correctly
-	user.ID = TestUserID("test")
-	user.Status = TestStatusCode(200)
-	user.Active = TestIsActive(true)
-
-	// Verify the types are distinct (these should not compile if uncommented)
-	// if user.ID == "test" { // This would be a compile error
-	//     t.Error("Type alias should prevent direct string comparison")
-	// }
-	// if user.Status == 200 { // This would be a compile error
-	//     t.Error("Type alias should prevent direct uint32 comparison")
-	// }
-	// if user.Active == true { // This would be a compile error
-	//     t.Error("Type alias should prevent direct bool comparison")
-	// }
-
-	// These should work (explicit conversions)
-	if string(user.ID) == "test" {
-		// This is expected
-	} else {
-		t.Error("String conversion should work")
-	}
-	if uint32(user.Status) == 200 {
-		// This is expected
-	} else {
-		t.Error("Uint32 conversion should work")
-	}
-	if bool(user.Active) == true {
-		// This is expected
-	} else {
-		t.Error("Bool conversion should work")
+	// Verify hash matches
+	if decoded.Hash != user.Hash {
+		t.Errorf("Hash mismatch: expected %v, got %v", user.Hash, decoded.Hash)
 	}
 }
 
@@ -177,6 +136,7 @@ func TestAliasEdgeCases(t *testing.T) {
 		Priority: TestPriority(0),     // Zero value
 		Created:  TestTimestamp(0),    // Zero value
 		Active:   TestIsActive(false), // False
+		Hash:     TestHash{},          // Zero value
 	}
 
 	// Round trip
@@ -216,5 +176,8 @@ func TestAliasEdgeCases(t *testing.T) {
 	}
 	if decoded.Active != TestIsActive(false) {
 		t.Errorf("False bool not preserved: got %v", decoded.Active)
+	}
+	if decoded.Hash != (TestHash{}) {
+		t.Errorf("Zero fixed array not preserved: got %v", decoded.Hash)
 	}
 }

@@ -1,3 +1,3 @@
 module github.com/tempusfrangit/go-xdr
 
-go 1.18
+go 1.20

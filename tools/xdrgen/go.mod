@@ -1,5 +1,5 @@
 module github.com/tempusfrangit/go-xdr/tools/xdrgen
 
-go 1.18
+go 1.20
 
 replace github.com/tempusfrangit/go-xdr => ../../

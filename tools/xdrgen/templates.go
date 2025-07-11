@@ -271,10 +271,23 @@ func generateBasicEncodeCode(field FieldInfo) (string, error) {
 		if underlyingType == "[]byte" {
 			underlyingType = "bytes"
 		}
+		// Handle fixed-size byte arrays like [16]byte
+		if strings.HasPrefix(underlyingType, "[") && strings.HasSuffix(underlyingType, "]byte") {
+			size := strings.TrimSuffix(strings.TrimPrefix(underlyingType, "["), "]byte")
+			underlyingType = "fixed:" + size
+		}
 		encodeMethod := getEncodeMethod(underlyingType)
 		if encodeMethod == "" {
 			return "", fmt.Errorf("unsupported underlying type for alias: %s", underlyingType)
 		}
+
+		// Handle fixed-size byte arrays specially
+		if strings.HasPrefix(underlyingType, "fixed:") {
+			return fmt.Sprintf(`if err := enc.EncodeFixedBytes(v.%s[:]); err != nil {
+	return fmt.Errorf("failed to encode %s: %%w", err)
+}`, field.Name, field.Name), nil
+		}
+
 		data := FieldData{
 			FieldName:      field.Name,
 			UnderlyingType: goTypeForXDRType(underlyingType),
@@ -323,10 +336,26 @@ func generateBasicDecodeCode(field FieldInfo) (string, error) {
 		if underlyingType == "[]byte" {
 			underlyingType = "bytes"
 		}
+		// Handle fixed-size byte arrays like [16]byte
+		if strings.HasPrefix(underlyingType, "[") && strings.HasSuffix(underlyingType, "]byte") {
+			size := strings.TrimSuffix(strings.TrimPrefix(underlyingType, "["), "]byte")
+			underlyingType = "fixed:" + size
+		}
 		decodeMethod := getDecodeMethod(underlyingType)
 		if decodeMethod == "" {
 			return "", fmt.Errorf("unsupported underlying type for alias: %s", underlyingType)
 		}
+
+		// Handle fixed-size byte arrays specially
+		if strings.HasPrefix(underlyingType, "fixed:") {
+			size := strings.TrimPrefix(underlyingType, "fixed:")
+			return fmt.Sprintf(`%sTmp, err := dec.DecodeFixedBytes(%s)
+	if err != nil {
+		return fmt.Errorf("failed to decode %s: %%w", err)
+	}
+	v.%s = %s(%sTmp)`, field.Name, size, field.Name, field.Name, field.Type, field.Name), nil
+		}
+
 		data := FieldData{
 			FieldName:      field.Name,
 			UnderlyingType: goTypeForXDRType(underlyingType),
@@ -486,6 +515,10 @@ func getEncodeMethod(xdrType string) string {
 	case "struct":
 		return "Encode" // Delegate to struct's Encode method
 	default:
+		// Handle fixed-size byte arrays
+		if strings.HasPrefix(xdrType, "fixed:") {
+			return "EncodeFixedBytes"
+		}
 		return ""
 	}
 }
@@ -508,6 +541,11 @@ func goTypeForXDRType(xdrType string) string {
 	case "bool":
 		return "bool"
 	default:
+		// Handle fixed-size byte arrays
+		if strings.HasPrefix(xdrType, "fixed:") {
+			size := strings.TrimPrefix(xdrType, "fixed:")
+			return "[" + size + "]byte"
+		}
 		panic("unsupported alias type: " + xdrType)
 	}
 }
@@ -532,6 +570,10 @@ func getDecodeMethod(xdrType string) string {
 	case "struct":
 		return "Decode" // Delegate to struct's Decode method
 	default:
+		// Handle fixed-size byte arrays
+		if strings.HasPrefix(xdrType, "fixed:") {
+			return "DecodeFixedBytes"
+		}
 		return ""
 	}
 }
