@@ -7,6 +7,40 @@ import (
 	"github.com/tempusfrangit/go-xdr"
 )
 
+// OpCode represents operation codes
+//
+//go:generate xdrgen $GOFILE
+type OpCode uint32
+
+const (
+	OpOpen  OpCode = 1
+	OpClose OpCode = 2
+	OpRead  OpCode = 3
+	OpWrite OpCode = 4
+)
+
+// Operation represents an operation with discriminated union
+//
+//xdr:union=OpCode,case=OpOpen=OpOpenResult,case=OpRead=OpReadResult,case=OpWrite=OpWriteResult
+type Operation struct {
+	OpCode OpCode `xdr:"key"`               // Discriminant field
+	Result []byte `xdr:"union,default=nil"` // Union payload with void default
+}
+
+// OpOpenResult is the payload for OpOpen
+// (add struct if you want a non-void payload)
+
+// OpReadResult contains the result of a read operation
+type OpReadResult struct {
+	Success bool   `xdr:"bool"`
+	Data    []byte `xdr:"bytes"`
+}
+
+// OpWriteResult contains the result of a write operation
+type OpWriteResult struct {
+	BytesWritten uint32 `xdr:"uint32"`
+}
+
 // Test type aliases for testing
 type TestUserID string
 type TestSessionID []byte

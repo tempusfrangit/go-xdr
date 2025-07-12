@@ -44,9 +44,11 @@ const (
 
 // BenchmarkResult for testing discriminated union performance
 type BenchmarkResult struct {
-	Status uint32 `xdr:"discriminant"`
-	Data   []byte `xdr:"union:0,void:default"`
+	Status uint32 `xdr:"key"`
+	Data   []byte `xdr:"union"`
 }
+
+//xdr:union=uint32,case=0=BenchmarkSuccessResult
 
 // Message type constants
 const (
@@ -57,9 +59,11 @@ const (
 
 // BenchmarkMessage for testing multi-case discriminated union
 type BenchmarkMessage struct {
-	Type    uint32 `xdr:"discriminant"`
-	Payload []byte `xdr:"union:1,2,void:default"`
+	Type    uint32 `xdr:"key"`
+	Payload []byte `xdr:"union"`
 }
+
+//xdr:union=uint32,case=1=BenchmarkTextPayload,case=2=BenchmarkBinaryPayload
 
 // Operation type constants
 const (
@@ -70,9 +74,11 @@ const (
 
 // BenchmarkOperation for testing complex discriminated union
 type BenchmarkOperation struct {
-	OpType uint32 `xdr:"discriminant"`
-	Data   []byte `xdr:"union:1,void:2,void:3"`
+	OpType uint32 `xdr:"key"`
+	Data   []byte `xdr:"union"`
 }
+
+//xdr:union=uint32,case=1=BenchmarkReadResult
 
 // Test data for benchmarks
 var (

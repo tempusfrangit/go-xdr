@@ -23,7 +23,7 @@ func Marshal(codec Codec) ([]byte, error) {
 		return nil, fmt.Errorf("XDR encoding failed: %w", err)
 	}
 
-	// Return copy of encoded data (same pattern as existing NFS code)
+	// Return copy of encoded data
 	result := make([]byte, len(enc.Bytes()))
 	copy(result, enc.Bytes())
 	return result, nil

@@ -29,47 +29,32 @@
 //
 // Discriminated Union Support:
 //
-// Discriminated unions follow XDR standard format: discriminant + union data.
+// Discriminated unions use key/union field pairs with comment-based configuration:
 //
-// LIMITATION: Only uint32 discriminants are supported. This design choice optimizes
-// for binary protocol efficiency and matches common protocol conventions. String
-// discriminants would require variable-length encoding and break zero-allocation
-// design goals. Other integer types (uint64, int32) are not supported to maintain
-// API simplicity.
+//	`xdr:"key"`       - marks the discriminant field (must be uint32 type)
+//	`xdr:"union"`     - marks the union payload field (must immediately follow key)
 //
-//	`xdr:"discriminant"`              - marks uint32 discriminant field
-//	`xdr:"union:pattern"`             - auto-discover based on discriminant constants
-//	`xdr:"union:VALUE"`               - single discriminant value maps to this field
-//	`xdr:"union:VALUE1,VALUE2"`       - multiple values map to this field
-//	`xdr:"union:VALUE,void:default"`  - VALUE maps to field, others are void
-//	`xdr:"union:void:VALUE"`          - VALUE is void, others use this field
-//	`xdr:"union:default"`             - handles all unmatched discriminant values
-//	`xdr:"union:pattern,void:OpX"`    - pattern discovery with specific voids
+// Union configuration is specified via comment directives:
 //
-// Pattern Discovery (`union:pattern`):
+//	//xdr:union=DiscriminantType,case=ConstantValue
 //
-//	Uses AST parsing to discover discriminant constants and matching structs:
+// Example:
 //
-//	1. Parse Go AST to find all constants of discriminant type (e.g., OpCode)
-//	2. For each constant like "OpAccess", extract base name "Access"
-//	3. Search AST for structs matching naming patterns:
-//	   - "AccessArgs" for operation arguments
-//	   - "AccessResult" for operation results
-//	4. Generate switch cases for found structs, void cases for missing structs
-//
-//	Discovery Algorithm:
-//	- OpAccess (3) → looks for AccessArgs/AccessResult structs
-//	- OpGetFH (10) → looks for GetFHArgs/GetFHResult structs
-//	- OpSaveFH (32) → no SaveFHArgs exists → void case (encodes nothing)
-//
-//	Example:
-//	type OperationArg struct {
-//	    OpCode OpCode `xdr:"discriminant"`
-//	    Args   []byte `xdr:"union:pattern"`  // Auto-discovers all OpXxxArgs
+//	type Operation struct {
+//	    OpCode OpCode `xdr:"key"`    // Discriminant field
+//	    Result []byte `xdr:"union"`  // Union payload (must follow key)
 //	}
 //
-//	Generated switch includes cases for every OpXxx constant that has XxxArgs struct.
-//	Build-time validation ensures all referenced structs have proper XDR tags.
+//	//xdr:union=OpCode,case=OpOpen
+//	type OpOpenResult struct {
+//	    FileHandle []byte `xdr:"bytes"`
+//	}
+//
+// Validation Rules:
+// - Voids are implicit (constants without mapping comments)
+// - Key field must be immediately followed by union field
+// - Union case must match existing constant/type
+// - All errors are aggregated (no fail-fast)
 //
 // Design principles:
 // - Explicit opt-in: structs must have go:generate directive
@@ -108,6 +93,7 @@ import (
 )
 
 var silent bool
+var debug bool
 
 // logf logs a message unless in silent mode
 func logf(format string, args ...any) {
@@ -116,14 +102,22 @@ func logf(format string, args ...any) {
 	}
 }
 
+// debugf logs a message only in debug mode
+func debugf(format string, args ...any) {
+	if debug {
+		log.Printf("DEBUG: "+format, args...)
+	}
+}
+
 // FieldInfo represents a struct field with XDR encoding information
 type FieldInfo struct {
-	Name           string
-	Type           string
-	XDRType        string
-	Tag            string
-	IsDiscriminant bool   // true if this field is a discriminated union discriminant
-	UnionSpec      string // union specification (e.g., "SUCCESS,void:default")
+	Name        string
+	Type        string
+	XDRType     string
+	Tag         string
+	IsKey       bool   // true if this field is a discriminated union key
+	IsUnion     bool   // true if this field is a discriminated union payload
+	DefaultType string // default type from union tag (empty, "nil", or struct name)
 }
 
 // TypeInfo represents a struct that needs XDR generation
@@ -131,12 +125,25 @@ type TypeInfo struct {
 	Name                 string
 	Fields               []FieldInfo
 	IsDiscriminatedUnion bool // true if this struct represents a discriminated union
+	UnionConfig          *UnionConfig
 }
 
-// UnionCase represents a single case in a discriminated union
-type UnionCase struct {
-	Values []string // Discriminant values for this case
-	IsVoid bool     // True if this is a void case
+// UnionConfig represents discriminated union configuration
+type UnionConfig struct {
+	DiscriminantType string            // e.g., "OpCode"
+	DefaultCase      string            // struct name for default case (if any)
+	Cases            map[string]string // discriminant value -> struct name
+	VoidCases        []string          // discriminant values that are void
+}
+
+// ValidationError represents a validation error
+type ValidationError struct {
+	Location string
+	Message  string
+}
+
+func (e ValidationError) Error() string {
+	return fmt.Sprintf("%s: %s", e.Location, e.Message)
 }
 
 // parseXDRTag extracts XDR encoding information from struct tag
@@ -156,51 +163,66 @@ func parseXDRTag(tag string) string {
 	return xdrPart
 }
 
-// parseDiscriminatedUnionTag parses discriminated union tags
-// Discriminants are uint32 by default for protocol efficiency
-func parseDiscriminatedUnionTag(xdrTag string) (isDiscriminant bool, unionSpec string) {
-	if xdrTag == "discriminant" {
-		return true, ""
+// parseKeyUnionTag parses key/union tags
+func parseKeyUnionTag(xdrTag string) (isKey bool, isUnion bool, defaultType string) {
+	if xdrTag == "key" {
+		return true, false, ""
 	}
-	if strings.HasPrefix(xdrTag, "union:") {
-		return false, strings.TrimPrefix(xdrTag, "union:")
+	if xdrTag == "union" {
+		return false, true, ""
 	}
-	return false, ""
+	if strings.HasPrefix(xdrTag, "union,") {
+		// Parse union with options like "union,default=OpOpenResult"
+		parts := strings.Split(xdrTag, ",")
+		for _, part := range parts[1:] {
+			if strings.HasPrefix(part, "default=") {
+				defaultType = strings.TrimPrefix(part, "default=")
+			}
+		}
+		return false, true, defaultType
+	}
+	return false, false, ""
 }
 
 // isSupportedXDRType checks if an XDR type is supported by the generator
 func isSupportedXDRType(xdrType string) bool {
 	switch xdrType {
-	case "uint32", "uint64", "int64", "string", "bytes", "bool", "struct", "array", "discriminant":
+	case "uint32", "uint64", "int64", "string", "bytes", "bool", "struct", "array", "key":
 		return true
 	default:
-		return strings.HasPrefix(xdrType, "fixed:") || strings.HasPrefix(xdrType, "union:") || strings.HasPrefix(xdrType, "alias:")
+		return strings.HasPrefix(xdrType, "fixed:") || strings.HasPrefix(xdrType, "alias:")
 	}
 }
 
-// collectExternalImports scans TypeInfo for external package dependencies
-func collectExternalImports(types []TypeInfo) []string {
-	imports := make(map[string]bool)
-
-	for _, typeInfo := range types {
-		for _, field := range typeInfo.Fields {
-			// Extract package qualifiers from field type (handles arrays/slices too)
-			extractPackageImports(field.Type, imports)
+// removeDuplicates removes duplicate strings from a slice
+func removeDuplicates(slice []string) []string {
+	seen := make(map[string]bool)
+	result := []string{}
+	for _, item := range slice {
+		if !seen[item] {
+			seen[item] = true
+			result = append(result, item)
 		}
 	}
-
-	// Convert map to sorted slice
-	result := make([]string, 0, len(imports))
-	for imp := range imports {
-		result = append(result, imp)
-	}
-
 	return result
 }
 
+// collectExternalImports collects external package imports from types
+func collectExternalImports(types []TypeInfo) []string {
+	var imports []string
+	for _, typeInfo := range types {
+		for _, field := range typeInfo.Fields {
+			fieldImports := extractPackageImports(field.Type)
+			imports = append(imports, fieldImports...)
+		}
+	}
+	return imports
+}
+
 // extractPackageImports extracts package imports from a type string
-// Handles cases like: "primitives.NFSImplID", "[]primitives.NFSImplID", "map[string]primitives.Type"
-func extractPackageImports(typeStr string, imports map[string]bool) {
+// Handles cases like: "primitives.StateID", "[]primitives.StateID", "map[string]primitives.Type"
+func extractPackageImports(typeStr string) []string {
+	var imports []string
 	// Find all package.Type patterns in the type string
 	parts := strings.FieldsFunc(typeStr, func(r rune) bool {
 		return r == '[' || r == ']' || r == '{' || r == '}' || r == '(' || r == ')' || r == '*' || r == ' ' || r == ','
@@ -214,72 +236,246 @@ func extractPackageImports(typeStr string, imports map[string]bool) {
 				// Map known package names to their import paths
 				switch packageName {
 				case "primitives":
-					imports["github.com/tempusfrangit/go-xdr/primitives"] = true
+					imports = append(imports, "github.com/tempusfrangit/go-xdr/primitives")
 				case "session":
-					imports["github.com/tempusfrangit/go-xdr/session"] = true
+					imports = append(imports, "github.com/tempusfrangit/go-xdr/session")
 					// Add other packages as needed
 				}
 			}
 		}
 	}
+	return imports
 }
 
-// parseUnionSpec parses union specification strings
-// Examples:
-//
-//	"SUCCESS,void:default" -> case SUCCESS (data), default void
-//	"VALUE1,VALUE2" -> cases VALUE1,VALUE2 (data)
-//	"void:VALUE" -> case VALUE (void)
-func parseUnionSpec(spec string) []UnionCase {
-	var cases []UnionCase
-
-	// Split by commas and parse each part
-	parts := strings.Split(spec, ",")
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-
-		if strings.HasPrefix(part, "void:") {
-			// Void case specification
-			value := strings.TrimPrefix(part, "void:")
-			cases = append(cases, UnionCase{
-				Values: []string{value},
-				IsVoid: true,
-			})
-		} else {
-			// Data case - check if it's a group or single value
-			cases = append(cases, UnionCase{
-				Values: []string{part},
-				IsVoid: false,
-			})
-		}
-	}
-
-	return cases
-}
-
-// hasDefaultCase checks if the union cases include a default case
-func hasDefaultCase(cases []UnionCase) bool {
-	for _, unionCase := range cases {
-		for _, value := range unionCase.Values {
-			if value == "default" {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// findDiscriminantField finds the discriminant field name in the given struct
-func findDiscriminantField(structInfo TypeInfo) string {
+// findKeyField finds the key field name in the given struct
+func findKeyField(structInfo TypeInfo) string {
 	for _, field := range structInfo.Fields {
-		if field.IsDiscriminant {
+		if field.IsKey {
 			return field.Name
 		}
 	}
 	return ""
+}
+
+// parseUnionComment parses a union configuration comment
+// Format: //xdr:union=DiscriminantType,case=ConstantValue
+func parseUnionComment(comment string) (*UnionConfig, error) {
+	if !strings.HasPrefix(comment, "//xdr:union=") {
+		return nil, nil
+	}
+
+	// Extract the union specification
+	spec := strings.TrimPrefix(comment, "//xdr:union=")
+	parts := strings.Split(spec, ",")
+
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("invalid union comment format: %s", comment)
+	}
+
+	config := &UnionConfig{
+		Cases:     make(map[string]string),
+		VoidCases: []string{},
+	}
+
+	// Parse discriminant type
+	discriminantPart := strings.TrimSpace(parts[0])
+	if discriminantPart == "" {
+		return nil, fmt.Errorf("missing discriminant type in union comment: %s", comment)
+	}
+	config.DiscriminantType = discriminantPart
+
+	// Parse cases
+	for i := 1; i < len(parts); i++ {
+		part := strings.TrimSpace(parts[i])
+		if part == "" {
+			continue
+		}
+
+		if strings.HasPrefix(part, "case=") {
+			// Parse case mapping
+			caseSpec := strings.TrimPrefix(part, "case=")
+			caseParts := strings.Split(caseSpec, "=")
+			if len(caseParts) != 2 {
+				return nil, fmt.Errorf("invalid case format in union comment: %s", comment)
+			}
+			constantValue := strings.TrimSpace(caseParts[0])
+			structName := strings.TrimSpace(caseParts[1])
+			config.Cases[constantValue] = structName
+		} else {
+			return nil, fmt.Errorf("unknown union comment part: %s", comment)
+		}
+	}
+
+	return config, nil
+}
+
+// validateUnionConfiguration validates discriminated union configuration
+func validateUnionConfiguration(types []TypeInfo, constants map[string]string, typeDefs map[string]ast.Node) []ValidationError {
+	var errors []ValidationError
+
+	// Helper to resolve type aliases recursively
+	var resolveToStruct func(typeName string) (*ast.StructType, string)
+	resolveToStruct = func(typeName string) (*ast.StructType, string) {
+		node, ok := typeDefs[typeName]
+		if !ok {
+			return nil, "notype"
+		}
+		switch t := node.(type) {
+		case *ast.StructType:
+			return t, "struct"
+		case *ast.Ident:
+			// Alias to another type
+			return resolveToStruct(t.Name)
+		case *ast.SelectorExpr:
+			// External type, treat as not a struct
+			return nil, "external"
+		default:
+			return nil, fmt.Sprintf("%T", t)
+		}
+	}
+
+	// Collect all union configurations
+	unionConfigs := make(map[string]*UnionConfig)
+	defaultCount := 0
+
+	for _, typeInfo := range types {
+		if typeInfo.UnionConfig != nil {
+			unionConfigs[typeInfo.UnionConfig.DiscriminantType] = typeInfo.UnionConfig
+
+			// Check for default case
+			if typeInfo.UnionConfig.DefaultCase != "" {
+				defaultCount++
+			}
+		}
+	}
+
+	// Validate default count (0 or 1)
+	if defaultCount > 1 {
+		errors = append(errors, ValidationError{
+			Location: "union configuration",
+			Message:  fmt.Sprintf("found %d default cases, only 0 or 1 allowed", defaultCount),
+		})
+	}
+
+	// Validate each union configuration
+	for discriminantType, config := range unionConfigs {
+		// Validate that discriminant type exists as a constant type
+		if _, exists := constants[discriminantType]; !exists {
+			errors = append(errors, ValidationError{
+				Location: fmt.Sprintf("union=%s", discriminantType),
+				Message:  fmt.Sprintf("discriminant type %s not found in constants", discriminantType),
+			})
+		}
+
+		// Validate that each case maps to a valid constant and struct
+		for constantValue, structName := range config.Cases {
+			fullConstantName := discriminantType + "." + constantValue
+			if _, exists := constants[fullConstantName]; !exists {
+				errors = append(errors, ValidationError{
+					Location: fmt.Sprintf("union=%s,case=%s", discriminantType, constantValue),
+					Message:  fmt.Sprintf("constant %s not found", fullConstantName),
+				})
+			}
+			// Validate struct or alias-to-struct
+			resolved, kind := resolveToStruct(structName)
+			if kind == "notype" {
+				errors = append(errors, ValidationError{
+					Location: fmt.Sprintf("union=%s,case=%s", discriminantType, constantValue),
+					Message:  fmt.Sprintf("union case payload type %s not found", structName),
+				})
+			} else if kind != "struct" {
+				errors = append(errors, ValidationError{
+					Location: fmt.Sprintf("union=%s,case=%s", discriminantType, constantValue),
+					Message:  fmt.Sprintf("union case payload type %s must be a struct or alias to struct, got %s", structName, kind),
+				})
+			} else {
+				// Check all fields are tagged
+				for _, field := range resolved.Fields.List {
+					if field.Tag == nil {
+						errors = append(errors, ValidationError{
+							Location: fmt.Sprintf("union=%s,case=%s", discriminantType, constantValue),
+							Message:  fmt.Sprintf("field %s in struct %s is missing xdr tag", field.Names[0].Name, structName),
+						})
+					}
+				}
+			}
+		}
+
+		// Find void cases (constants without mappings)
+		for constantName := range constants {
+			if strings.HasPrefix(constantName, discriminantType+".") {
+				constantShortName := strings.TrimPrefix(constantName, discriminantType+".")
+				if _, hasMapping := config.Cases[constantShortName]; !hasMapping {
+					config.VoidCases = append(config.VoidCases, constantShortName)
+				}
+			}
+		}
+	}
+
+	// In validateUnionConfiguration, add validation for default types
+	for i := range types {
+		if types[i].IsDiscriminatedUnion {
+			// Find the union field to validate default type
+			var unionField FieldInfo
+			for _, field := range types[i].Fields {
+				if field.IsUnion {
+					unionField = field
+					break
+				}
+			}
+			if unionField.DefaultType != "" && unionField.DefaultType != "nil" {
+				// Validate that the default type exists
+				resolved, kind := resolveToStruct(unionField.DefaultType)
+				if kind == "notype" {
+					errors = append(errors, ValidationError{
+						Location: fmt.Sprintf("union field %s", unionField.Name),
+						Message:  fmt.Sprintf("default type %s not found", unionField.DefaultType),
+					})
+				} else if kind != "struct" {
+					errors = append(errors, ValidationError{
+						Location: fmt.Sprintf("union field %s", unionField.Name),
+						Message:  fmt.Sprintf("default type %s must be a struct or alias to struct, got %s", unionField.DefaultType, kind),
+					})
+				} else {
+					// Check all fields are tagged
+					for _, field := range resolved.Fields.List {
+						if field.Tag == nil {
+							errors = append(errors, ValidationError{
+								Location: fmt.Sprintf("union field %s default type %s", unionField.Name, unionField.DefaultType),
+								Message:  fmt.Sprintf("field %s in default struct %s is missing xdr tag", field.Names[0].Name, unionField.DefaultType),
+							})
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return errors
+}
+
+// collectConstants collects all constant definitions from the AST
+func collectConstants(file *ast.File) map[string]string {
+	constants := make(map[string]string)
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		if decl, ok := n.(*ast.GenDecl); ok && decl.Tok == token.CONST {
+			for _, spec := range decl.Specs {
+				if valueSpec, ok := spec.(*ast.ValueSpec); ok {
+					for i, name := range valueSpec.Names {
+						if i < len(valueSpec.Values) {
+							if basicLit, ok := valueSpec.Values[i].(*ast.BasicLit); ok {
+								constants[name.Name] = basicLit.Value
+							}
+						}
+					}
+				}
+			}
+		}
+		return true
+	})
+
+	return constants
 }
 
 // hasExistingMethods checks if a type already has Encode/Decode methods
@@ -316,10 +512,10 @@ func extractReceiverType(expr ast.Expr) string {
 }
 
 // extractBuildTags extracts build tags from a Go source file
-func extractBuildTags(filename string) ([]string, error) {
+func extractBuildTags(filename string) []string {
 	content, err := os.ReadFile(filename)
 	if err != nil {
-		return nil, err
+		return nil
 	}
 
 	var buildTags []string
@@ -349,19 +545,69 @@ func extractBuildTags(filename string) ([]string, error) {
 		}
 	}
 
-	return buildTags, nil
+	return buildTags
 }
 
 // parseFile parses a Go file and extracts structs that have go:generate xdrgen directives
-func parseFile(filename string) ([]TypeInfo, error) {
+func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.Node, error) {
 	fset := token.NewFileSet()
+
+	fileBytes, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	lines := strings.Split(string(fileBytes), "\n")
+	var misplacedUnionComments []ValidationError
+
+	// Map of all type definitions (structs and aliases)
+	typeDefs := make(map[string]ast.Node)
+
+	// Scan for misplaced //xdr:union=... comments
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "//xdr:union=") {
+			// Look ahead for next non-comment, non-blank line
+			seen := false
+			for j := i + 1; j < len(lines); j++ {
+				next := strings.TrimSpace(lines[j])
+				if next == "" || strings.HasPrefix(next, "//") {
+					continue
+				}
+				seen = true
+				if !strings.HasPrefix(next, "type ") || !strings.Contains(next, " struct {") {
+					misplacedUnionComments = append(misplacedUnionComments, ValidationError{
+						Location: fmt.Sprintf("line %d", i+1),
+						Message:  fmt.Sprintf("union comment not followed by struct: %s", trimmed),
+					})
+				}
+				break
+			}
+			if !seen {
+				misplacedUnionComments = append(misplacedUnionComments, ValidationError{
+					Location: fmt.Sprintf("line %d", i+1),
+					Message:  fmt.Sprintf("union comment not followed by struct: %s", trimmed),
+				})
+			}
+		}
+		if strings.HasPrefix(trimmed, "// xdr:") && debug {
+			debugf("Warning: ignoring malformed union comment (has space): %s", trimmed)
+		}
+	}
 
 	// For files with build tags, we need to parse them with the appropriate build context
 	// For now, we'll parse all files regardless of build tags to ensure we don't miss any
 	file, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
+
+	// Build typeDefs map
+	ast.Inspect(file, func(n ast.Node) bool {
+		if node, ok := n.(*ast.TypeSpec); ok {
+			typeDefs[node.Name.Name] = node.Type
+		}
+		return true
+	})
 
 	var types []TypeInfo
 
@@ -423,6 +669,21 @@ func parseFile(filename string) ([]TypeInfo, error) {
 	// This allows processing test files and other files without explicit directives
 	if !hasGOFILEDirective && len(structsToGenerate) == 0 {
 		hasGOFILEDirective = true
+	}
+
+	// Collect all union comments from the file
+	unionComments := make(map[string]*UnionConfig)
+	for _, commentGroup := range file.Comments {
+		for _, comment := range commentGroup.List {
+			unionConfig, err := parseUnionComment(comment.Text)
+			if err != nil {
+				log.Fatalf("Error parsing union comment: %v", err)
+			}
+			if unionConfig != nil {
+				debugf("Found union comment: %+v", unionConfig)
+				unionComments[unionConfig.DiscriminantType] = unionConfig
+			}
+		}
 	}
 
 	ast.Inspect(file, func(n ast.Node) bool {
@@ -514,22 +775,51 @@ func parseFile(filename string) ([]TypeInfo, error) {
 						}
 
 						// Check for discriminated union tags
-						isDiscriminant, unionSpec := parseDiscriminatedUnionTag(fieldInfo.XDRType)
-						fieldInfo.IsDiscriminant = isDiscriminant
-						fieldInfo.UnionSpec = unionSpec
+						isKey, isUnion, defaultType := parseKeyUnionTag(fieldInfo.XDRType)
+						fieldInfo.IsKey = isKey
+						fieldInfo.IsUnion = isUnion
+						fieldInfo.DefaultType = defaultType // Store the default type from the tag
 
-						// Mark struct as discriminated union if it contains discriminant field
-						if isDiscriminant {
+						// Mark struct as discriminated union if it contains key field
+						if isKey {
 							typeInfo.IsDiscriminatedUnion = true
+							// Key fields must be uint32 type
+							if fieldInfo.Type != "uint32" {
+								log.Fatalf("Key field %s.%s must be uint32 type, got %s", typeInfo.Name, fieldInfo.Name, fieldInfo.Type)
+							}
+							// Key fields should be treated as uint32 for encoding/decoding
+							fieldInfo.XDRType = "uint32"
+						}
+						if isUnion {
+							// Union fields should be treated as bytes for encoding/decoding
+							fieldInfo.XDRType = "bytes"
 						}
 
-						// Validate that we can handle this XDR type
+						// Validate that we can handle this XDR type (after key/union processing)
 						if !isSupportedXDRType(fieldInfo.XDRType) {
-							log.Fatalf("Unsupported XDR type '%s' for field %s.%s. Supported types: uint32, uint64, string, bytes, bool, stateid, sessionid, discriminant, union:..., fixed:N. Add support or implement custom Encode/Decode methods.",
+							log.Fatalf("Unsupported XDR type '%s' for field %s.%s. Supported types: uint32, uint64, string, bytes, bool, struct, array, fixed:N, key, union. Add support or implement custom Encode/Decode methods.",
 								fieldInfo.XDRType, typeInfo.Name, fieldInfo.Name)
 						}
 
 						typeInfo.Fields = append(typeInfo.Fields, fieldInfo)
+					}
+				}
+
+				// Associate union comments with this struct
+				if typeInfo.IsDiscriminatedUnion {
+					// Find the key field to determine the discriminant type
+					var keyField FieldInfo
+					for _, field := range typeInfo.Fields {
+						if field.IsKey {
+							keyField = field
+							break
+						}
+					}
+					if keyField.Name != "" {
+						discriminantType := keyField.Name
+						if unionConfig, exists := unionComments[discriminantType]; exists {
+							typeInfo.UnionConfig = unionConfig
+						}
 					}
 				}
 
@@ -541,7 +831,67 @@ func parseFile(filename string) ([]TypeInfo, error) {
 		return true
 	})
 
-	return types, nil
+	// In parseFile, after parsing all structs, collect union configurations
+	// and associate them with the main union struct
+
+	// Collect all union configurations from payload structs
+	unionConfigs := make(map[string]*UnionConfig)
+
+	// First pass: collect union configurations from payload structs
+	for _, typeInfo := range types {
+		if !typeInfo.IsDiscriminatedUnion {
+			// Look for union comments in payload structs
+			if typeInfo.UnionConfig != nil {
+				discriminantType := typeInfo.UnionConfig.DiscriminantType
+				if unionConfigs[discriminantType] == nil {
+					unionConfigs[discriminantType] = &UnionConfig{
+						DiscriminantType: discriminantType,
+						Cases:            make(map[string]string),
+						VoidCases:        []string{},
+					}
+				}
+				// Merge cases from this payload struct
+				for constantValue, structName := range typeInfo.UnionConfig.Cases {
+					unionConfigs[discriminantType].Cases[constantValue] = structName
+				}
+			}
+		}
+	}
+
+	// Second pass: associate union configurations with main union structs
+	for i := range types {
+		if types[i].IsDiscriminatedUnion {
+			// Find the key field to determine the discriminant type
+			var keyField FieldInfo
+			var unionField FieldInfo
+			for _, field := range types[i].Fields {
+				if field.IsKey {
+					keyField = field
+				}
+				if field.IsUnion {
+					unionField = field
+				}
+			}
+			if keyField.Name != "" && unionField.Name != "" {
+				// Try to find a union config for this discriminant type
+				discriminantType := keyField.Type
+				if config, exists := unionConfigs[discriminantType]; exists {
+					types[i].UnionConfig = config
+					// Set the default case from the union field tag
+					if unionField.DefaultType != "" {
+						if unionField.DefaultType == "nil" {
+							// Void default - don't set DefaultCase
+						} else {
+							// Payload default
+							types[i].UnionConfig.DefaultCase = unionField.DefaultType
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return types, misplacedUnionComments, typeDefs, nil
 }
 
 // formatType converts an ast.Expr to a string representation
@@ -595,6 +945,7 @@ func main() {
 
 	flag.BoolVar(&silent, "silent", false, "suppress all output except errors")
 	flag.BoolVar(&silent, "s", false, "suppress all output except errors (shorthand)")
+	flag.BoolVar(&debug, "debug", false, "enable debug logging")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "xdrgen - XDR Code Generator\n\n")
@@ -651,7 +1002,7 @@ func main() {
 		outputFile = strings.TrimSuffix(inputFile, ".go") + "_xdr.go"
 	}
 
-	types, err := parseFile(inputFile)
+	types, _, _, err := parseFile(inputFile)
 	if err != nil {
 		log.Fatal("Error parsing file:", err)
 	}
@@ -661,8 +1012,10 @@ func main() {
 		return
 	}
 
-	// Validate discriminated union structures
-	validateDiscriminatedUnions(types)
+	// Show counts in standard mode
+	if !silent {
+		logf("Found %d types with XDR tags", len(types))
+	}
 
 	// Extract package name from input file
 	fset := token.NewFileSet()
@@ -671,33 +1024,56 @@ func main() {
 		log.Fatal("Error parsing package:", err)
 	}
 
-	// Collect external package dependencies
-	externalImports := collectExternalImports(types)
+	packageName := file.Name.Name
+
+	// Collect constants for union validation
+	constants := collectConstants(file)
+
+	// Validate discriminated unions
+	if err := validateDiscriminatedUnions(types, constants); err != nil {
+		log.Fatal("Validation error:", err)
+	}
+
+	// Collect external imports
+	var externalImports []string
+	for _, typeInfo := range types {
+		imports := collectExternalImports([]TypeInfo{typeInfo})
+		externalImports = append(externalImports, imports...)
+	}
+
+	// Remove duplicates
+	externalImports = removeDuplicates(externalImports)
 
 	// Extract build tags from input file
-	buildTags, err := extractBuildTags(inputFile)
-	if err != nil {
-		log.Fatal("Error extracting build tags:", err)
-	}
-	if len(buildTags) > 0 {
-		logf("Found build tags: %v", buildTags)
+	buildTags := extractBuildTags(inputFile)
+
+	// Extract struct type names for dynamic type detection
+	var structTypeNames []string
+	for _, typeInfo := range types {
+		structTypeNames = append(structTypeNames, typeInfo.Name)
 	}
 
-	// Generate the output file using templates
+	// Create code generator
+	codeGen, err := NewCodeGenerator(structTypeNames)
+	if err != nil {
+		log.Fatal("Error creating code generator:", err)
+	}
+
+	// Generate output
 	var output strings.Builder
 
 	// Generate file header
-	header, err := GenerateFileHeader(filepath.Base(inputFile), file.Name.Name, externalImports, buildTags)
+	header, err := codeGen.GenerateFileHeader(inputFile, packageName, externalImports, buildTags)
 	if err != nil {
 		log.Fatal("Error generating file header:", err)
 	}
 	output.WriteString(header)
 	output.WriteString("\n")
 
-	// Generate methods for each type
+	// Generate code for each type
 	for _, typeInfo := range types {
 		// Generate encode method
-		encodeMethod, err := GenerateEncodeMethod(typeInfo)
+		encodeMethod, err := codeGen.GenerateEncodeMethod(typeInfo)
 		if err != nil {
 			log.Fatal("Error generating encode method:", err)
 		}
@@ -705,7 +1081,7 @@ func main() {
 		output.WriteString("\n")
 
 		// Generate decode method
-		decodeMethod, err := GenerateDecodeMethod(typeInfo)
+		decodeMethod, err := codeGen.GenerateDecodeMethod(typeInfo)
 		if err != nil {
 			log.Fatal("Error generating decode method:", err)
 		}
@@ -713,7 +1089,7 @@ func main() {
 		output.WriteString("\n")
 
 		// Generate compile-time assertion
-		assertion, err := GenerateAssertion(typeInfo.Name)
+		assertion, err := codeGen.GenerateAssertion(typeInfo.Name)
 		if err != nil {
 			log.Fatal("Error generating assertion:", err)
 		}
@@ -726,35 +1102,47 @@ func main() {
 		log.Fatal("Error writing output file:", err)
 	}
 
-	logf("Generated XDR methods for %d types in %s", len(types), outputFile)
+	if !silent {
+		logf("Generated XDR methods for %d types in %s", len(types), outputFile)
+	}
 }
 
 // validateDiscriminatedUnions validates that discriminated union structures are correctly formed
-func validateDiscriminatedUnions(types []TypeInfo) {
+func validateDiscriminatedUnions(types []TypeInfo, constants map[string]string) error {
 	for _, typeInfo := range types {
 		if typeInfo.IsDiscriminatedUnion {
-			discriminantCount := 0
+			keyCount := 0
 			unionCount := 0
+			keyIndex := -1
+			unionIndex := -1
 
-			// Count discriminant and union fields
-			for _, field := range typeInfo.Fields {
-				if field.IsDiscriminant {
-					discriminantCount++
+			// Count key and union fields and find their positions
+			for i, field := range typeInfo.Fields {
+				if field.IsKey {
+					keyCount++
+					keyIndex = i
 				}
-				if field.UnionSpec != "" {
+				if field.IsUnion {
 					unionCount++
+					unionIndex = i
 				}
 			}
 
 			// Validate discriminated union structure
-			if discriminantCount != 1 {
-				log.Fatalf("Discriminated union struct %s must have exactly one discriminant field, found %d", typeInfo.Name, discriminantCount)
+			if keyCount != 1 {
+				return fmt.Errorf("Discriminated union struct %s must have exactly one key field, found %d", typeInfo.Name, keyCount)
 			}
 			if unionCount == 0 {
-				log.Fatalf("Discriminated union struct %s must have at least one union field", typeInfo.Name)
+				return fmt.Errorf("Discriminated union struct %s must have at least one union field", typeInfo.Name)
 			}
 
-			logf("Validated discriminated union %s: %d discriminant, %d union fields", typeInfo.Name, discriminantCount, unionCount)
+			// Validate ordered pair requirement: key must be immediately followed by union
+			if unionIndex != keyIndex+1 {
+				return fmt.Errorf("Discriminated union struct %s: key field must be immediately followed by union field", typeInfo.Name)
+			}
+
+			logf("Validated discriminated union %s: %d key, %d union fields", typeInfo.Name, keyCount, unionCount)
 		}
 	}
+	return nil
 }

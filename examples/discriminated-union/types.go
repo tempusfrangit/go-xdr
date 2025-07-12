@@ -16,9 +16,11 @@ const (
 // OperationResult demonstrates a discriminated union based on Status
 // When Status is StatusSuccess, Data field contains the result
 // When Status is StatusError or StatusPending, Data field is void (nil)
+//
+//xdr:union=Status,case=StatusSuccess=OpSuccessResult
 type OperationResult struct {
-	Status uint32 `xdr:"discriminant"`
-	Data   []byte `xdr:"union:0,void:default"`
+	Status uint32 `xdr:"key"`
+	Data   []byte `xdr:"union,default=nil"`
 }
 
 // Message type constants
@@ -29,9 +31,11 @@ const (
 )
 
 // NetworkMessage demonstrates discriminated union with different payload types
+//
+//xdr:union=Type,case=MessageTypeText=TextPayload,case=MessageTypeBinary=BinaryPayload
 type NetworkMessage struct {
-	Type    uint32 `xdr:"discriminant"`
-	Payload []byte `xdr:"union:1,2,void:default"`
+	Type    uint32 `xdr:"key"`
+	Payload []byte `xdr:"union,default=nil"`
 }
 
 // TextPayload for text messages
@@ -54,11 +58,11 @@ const (
 )
 
 // FileOperation demonstrates conditional result data
-// Read operations have ReadResult data
-// Write and Delete operations have no result data (void)
+//
+//xdr:union=OpType,case=OpTypeRead=ReadResult
 type FileOperation struct {
-	OpType uint32 `xdr:"discriminant"`
-	Result []byte `xdr:"union:1,void:2,void:3"`
+	OpType uint32 `xdr:"key"`
+	Result []byte `xdr:"union,default=nil"`
 }
 
 // ReadResult contains the result of a read operation

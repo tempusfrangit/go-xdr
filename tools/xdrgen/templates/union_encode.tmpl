@@ -1,11 +1,11 @@
-// Switch based on discriminant for union field {{.FieldName}}
-	switch v.{{.DiscriminantField}} {
+// Switch based on key for union field {{.FieldName}}
+switch v.{{.DiscriminantField}} {
 {{range .Cases}}
 	{{.CaseLabels}}:
 		{{.EncodeCode}}
 {{end}}
 {{if not .HasDefaultCase}}
 	default:
-		// unknown discriminant - encode nothing
+		// unknown key - encode nothing
 {{end}}
-	}
+}

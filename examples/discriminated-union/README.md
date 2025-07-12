@@ -11,33 +11,40 @@ This example demonstrates XDR discriminated unions (variant types) where the pre
 
 ## Key concepts
 
-- **Discriminant**: Field that determines which union case is active
-- **Union Cases**: Different data types or void based on discriminant value
+- **Discriminant**: Field that determines which union case is active (tagged with `xdr:"key"`)
+- **Union Cases**: Different data types or void based on discriminant value (tagged with `xdr:"union,default=Type"` or `xdr:"union,default=nil"` for void)
 - **Void Case**: Union case with no associated data
 - **Type Safety**: Compile-time validation of union specifications
 
-## XDR Union Tags
+## XDR Union Tags (New Style)
 
-- `xdr:"union,discriminant:FieldName,case:value=Type"` - Union with specific case mapping
-- `xdr:"bytes,discriminant:Status,case:0"` - Conditional field present only when discriminant equals 0
-- `case:1=TextPayload,case:2=BinaryPayload,case:3=void` - Multiple union cases with different types
+- `xdr:"key"` - marks the discriminant field
+- `xdr:"union,default=nil"` - marks the union payload field with a void default (optional)
+- `xdr:"union,default=Type"` - marks the union payload field with a struct default (optional)
+- `xdr:"union"` - marks the union payload field with no default case
+- `//xdr:union=DiscriminantType,case=ConstantValue` - comment above the union payload struct to map discriminant values to payload types. Do not use `default` in the comment.
 
-## Union Types
-
-### Simple Discriminated Union
+### Example
 ```go
 type OperationResult struct {
-    Status uint32 `xdr:"uint32"`
-    Data   []byte `xdr:"bytes,discriminant:Status,case:0"`
+    Status uint32 `xdr:"key"`
+    Data   []byte `xdr:"union"`
 }
+
+//xdr:union=uint32,case=0=OpSuccessResult
+// OpSuccessResult is the payload for StatusSuccess
+// (add struct if you want a non-void payload)
 ```
 
-### Multi-Type Union
+### Multi-Type Union Example
 ```go
 type NetworkMessage struct {
-    Type    uint32      `xdr:"uint32"`
-    Payload interface{} `xdr:"union,discriminant:Type,case:1=TextPayload,case:2=BinaryPayload,case:3=void"`
+    Type    uint32 `xdr:"key"`
+    Payload []byte `xdr:"union"`
 }
+
+//xdr:union=uint32,case=1=TextPayload,case=2=BinaryPayload
+// No default case: only these discriminant values are valid
 ```
 
 ## Running the example

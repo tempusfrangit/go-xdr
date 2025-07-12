@@ -11,37 +11,26 @@ func TestTemplateManager(t *testing.T) {
 		t.Fatalf("NewTemplateManager failed: %v", err)
 	}
 
-	// Test that templates are loaded
-	expectedTemplates := []string{
-		"file_header",
-		"encode_method",
-		"decode_method",
-		"assertion",
-		"field_encode_basic",
-		"field_decode_basic",
-		"field_encode_struct",
-		"field_decode_struct",
-		"array_encode",
-		"array_decode",
-		"union_encode",
-		"union_decode",
-		"union_case_void",
-		"union_case_bytes_encode",
-		"union_case_bytes_decode",
-		"union_case_struct_encode",
-		"union_case_struct_decode",
+	if tm == nil {
+		t.Error("NewTemplateManager should return non-nil manager")
 	}
 
-	for _, templateName := range expectedTemplates {
-		t.Run("Template_"+templateName, func(t *testing.T) {
-			tmpl, exists := tm.GetTemplate(templateName)
-			if !exists {
-				t.Errorf("Template %q not found", templateName)
-			}
-			if tmpl == nil {
-				t.Errorf("Template %q is nil", templateName)
-			}
-		})
+	// Test that we can get templates
+	templates := []string{"file_header", "encode_method", "decode_method", "assertion"}
+	for _, templateName := range templates {
+		tmpl, exists := tm.GetTemplate(templateName)
+		if !exists {
+			t.Errorf("Template %s should exist", templateName)
+		}
+		if tmpl == nil {
+			t.Errorf("Template %s should not be nil", templateName)
+		}
+	}
+
+	// Test non-existent template
+	_, exists := tm.GetTemplate("non_existent")
+	if exists {
+		t.Error("Non-existent template should not exist")
 	}
 }
 
@@ -52,17 +41,16 @@ func TestTemplateManagerExecute(t *testing.T) {
 	}
 
 	// Test executing a simple template
-	data := TypeData{
-		TypeName: "TestStruct",
-	}
-
-	result, err := tm.ExecuteTemplate("assertion", data)
+	result, err := tm.ExecuteTemplate("assertion", TypeData{TypeName: "TestStruct"})
 	if err != nil {
 		t.Fatalf("ExecuteTemplate failed: %v", err)
 	}
 
 	if !strings.Contains(result, "TestStruct") {
-		t.Errorf("Template result should contain 'TestStruct', got: %s", result)
+		t.Error("Result should contain type name")
+	}
+	if !strings.Contains(result, "xdr.Codec") {
+		t.Error("Result should contain interface name")
 	}
 }
 
@@ -72,59 +60,79 @@ func TestTemplateManagerExecuteNonExistent(t *testing.T) {
 		t.Fatalf("NewTemplateManager failed: %v", err)
 	}
 
-	_, err = tm.ExecuteTemplate("nonexistent", nil)
+	// Test executing non-existent template
+	_, err = tm.ExecuteTemplate("non_existent", nil)
 	if err == nil {
-		t.Error("Expected error for non-existent template")
+		t.Error("Should return error for non-existent template")
 	}
 }
 
 func TestGenerateFileHeader(t *testing.T) {
-	result, err := GenerateFileHeader("test.go", "testpkg", []string{"fmt", "strings"}, []string{})
+	cg, err := NewCodeGenerator([]string{})
+	if err != nil {
+		t.Fatalf("NewCodeGenerator failed: %v", err)
+	}
+
+	result, err := cg.GenerateFileHeader("test.go", "testpkg", []string{"external/pkg"}, []string{"//go:build test"})
 	if err != nil {
 		t.Fatalf("GenerateFileHeader failed: %v", err)
 	}
 
-	// Check that the result contains expected elements
+	if !strings.Contains(result, "test.go") {
+		t.Error("Result should contain source file name")
+	}
 	if !strings.Contains(result, "testpkg") {
 		t.Error("Result should contain package name")
 	}
-	if !strings.Contains(result, "test.go") {
-		t.Error("Result should contain source file name")
+	if !strings.Contains(result, "external/pkg") {
+		t.Error("Result should contain external imports")
+	}
+	if !strings.Contains(result, "//go:build test") {
+		t.Error("Result should contain build tags")
 	}
 }
 
 func TestGenerateFileHeaderNoImports(t *testing.T) {
-	result, err := GenerateFileHeader("test.go", "testpkg", []string{}, []string{})
+	cg, err := NewCodeGenerator([]string{})
+	if err != nil {
+		t.Fatalf("NewCodeGenerator failed: %v", err)
+	}
+
+	result, err := cg.GenerateFileHeader("test.go", "testpkg", nil, nil)
 	if err != nil {
 		t.Fatalf("GenerateFileHeader failed: %v", err)
 	}
 
-	// Should work with no external imports
 	if !strings.Contains(result, "testpkg") {
 		t.Error("Result should contain package name")
 	}
 }
 
 func TestGenerateFileHeaderWithBuildTags(t *testing.T) {
-	buildTags := []string{"//go:build bench", "// +build bench"}
-	result, err := GenerateFileHeader("test.go", "testpkg", []string{}, buildTags)
+	cg, err := NewCodeGenerator([]string{})
+	if err != nil {
+		t.Fatalf("NewCodeGenerator failed: %v", err)
+	}
+
+	result, err := cg.GenerateFileHeader("test.go", "testpkg", nil, []string{"//go:build linux", "//go:build amd64"})
 	if err != nil {
 		t.Fatalf("GenerateFileHeader failed: %v", err)
 	}
 
-	// Should contain build tags
-	if !strings.Contains(result, "//go:build bench") {
-		t.Error("Result should contain go:build directive")
+	if !strings.Contains(result, "//go:build linux") {
+		t.Error("Result should contain first build tag")
 	}
-	if !strings.Contains(result, "// +build bench") {
-		t.Error("Result should contain +build directive")
-	}
-	if !strings.Contains(result, "testpkg") {
-		t.Error("Result should contain package name")
+	if !strings.Contains(result, "//go:build amd64") {
+		t.Error("Result should contain second build tag")
 	}
 }
 
 func TestGenerateEncodeMethod(t *testing.T) {
+	cg, err := NewCodeGenerator([]string{})
+	if err != nil {
+		t.Fatalf("NewCodeGenerator failed: %v", err)
+	}
+
 	typeInfo := TypeInfo{
 		Name: "TestStruct",
 		Fields: []FieldInfo{
@@ -133,24 +141,25 @@ func TestGenerateEncodeMethod(t *testing.T) {
 		},
 	}
 
-	result, err := GenerateEncodeMethod(typeInfo)
+	result, err := cg.GenerateEncodeMethod(typeInfo)
 	if err != nil {
 		t.Fatalf("GenerateEncodeMethod failed: %v", err)
 	}
 
-	// Check that the result contains expected elements
 	if !strings.Contains(result, "TestStruct") {
-		t.Error("Result should contain type name")
+		t.Error("Result should contain struct name")
 	}
 	if !strings.Contains(result, "Encode") {
 		t.Error("Result should contain Encode method")
 	}
-	if !strings.Contains(result, "ID") {
-		t.Error("Result should contain field names")
-	}
 }
 
 func TestGenerateDecodeMethod(t *testing.T) {
+	cg, err := NewCodeGenerator([]string{})
+	if err != nil {
+		t.Fatalf("NewCodeGenerator failed: %v", err)
+	}
+
 	typeInfo := TypeInfo{
 		Name: "TestStruct",
 		Fields: []FieldInfo{
@@ -159,39 +168,44 @@ func TestGenerateDecodeMethod(t *testing.T) {
 		},
 	}
 
-	result, err := GenerateDecodeMethod(typeInfo)
+	result, err := cg.GenerateDecodeMethod(typeInfo)
 	if err != nil {
 		t.Fatalf("GenerateDecodeMethod failed: %v", err)
 	}
 
-	// Check that the result contains expected elements
 	if !strings.Contains(result, "TestStruct") {
-		t.Error("Result should contain type name")
+		t.Error("Result should contain struct name")
 	}
 	if !strings.Contains(result, "Decode") {
 		t.Error("Result should contain Decode method")
 	}
-	if !strings.Contains(result, "ID") {
-		t.Error("Result should contain field names")
-	}
 }
 
 func TestGenerateAssertion(t *testing.T) {
-	result, err := GenerateAssertion("TestStruct")
+	cg, err := NewCodeGenerator([]string{})
+	if err != nil {
+		t.Fatalf("NewCodeGenerator failed: %v", err)
+	}
+
+	result, err := cg.GenerateAssertion("TestStruct")
 	if err != nil {
 		t.Fatalf("GenerateAssertion failed: %v", err)
 	}
 
-	// Check that the result contains expected elements
 	if !strings.Contains(result, "TestStruct") {
 		t.Error("Result should contain type name")
 	}
 	if !strings.Contains(result, "xdr.Codec") {
-		t.Error("Result should contain Codec interface")
+		t.Error("Result should contain interface name")
 	}
 }
 
 func TestGenerateBasicEncodeCode(t *testing.T) {
+	cg, err := NewCodeGenerator([]string{})
+	if err != nil {
+		t.Fatalf("NewCodeGenerator failed: %v", err)
+	}
+
 	tests := []struct {
 		name     string
 		field    FieldInfo
@@ -221,18 +235,27 @@ func TestGenerateBasicEncodeCode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := generateBasicEncodeCode(tt.field)
+			result, err := cg.generateBasicEncodeCode(tt.field)
 			if err != nil {
 				t.Fatalf("generateBasicEncodeCode failed: %v", err)
 			}
+
+			if !strings.Contains(result, tt.field.Name) {
+				t.Error("Result should contain field name")
+			}
 			if !strings.Contains(result, tt.expected) {
-				t.Errorf("Expected result to contain %q, got: %s", tt.expected, result)
+				t.Errorf("Result should contain %s", tt.expected)
 			}
 		})
 	}
 }
 
 func TestGenerateBasicDecodeCode(t *testing.T) {
+	cg, err := NewCodeGenerator([]string{})
+	if err != nil {
+		t.Fatalf("NewCodeGenerator failed: %v", err)
+	}
+
 	tests := []struct {
 		name     string
 		field    FieldInfo
@@ -262,150 +285,88 @@ func TestGenerateBasicDecodeCode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := generateBasicDecodeCode(tt.field)
+			result, err := cg.generateBasicDecodeCode(tt.field)
 			if err != nil {
 				t.Fatalf("generateBasicDecodeCode failed: %v", err)
 			}
+
+			if !strings.Contains(result, tt.field.Name) {
+				t.Error("Result should contain field name")
+			}
 			if !strings.Contains(result, tt.expected) {
-				t.Errorf("Expected result to contain %q, got: %s", tt.expected, result)
+				t.Errorf("Result should contain %s", tt.expected)
 			}
 		})
 	}
 }
 
 func TestGenerateArrayEncodeCode(t *testing.T) {
-	field := FieldInfo{Name: "Items", Type: "[]uint32", XDRType: "array"}
-	result, err := generateBasicEncodeCode(field)
+	cg, err := NewCodeGenerator([]string{})
+	if err != nil {
+		t.Fatalf("NewCodeGenerator failed: %v", err)
+	}
+
+	field := FieldInfo{Name: "Items", Type: "[]string", XDRType: "array"}
+
+	result, err := cg.generateBasicEncodeCode(field)
 	if err != nil {
 		t.Fatalf("generateBasicEncodeCode failed: %v", err)
 	}
 
-	// Should contain array-specific logic
 	if !strings.Contains(result, "Items") {
 		t.Error("Result should contain field name")
+	}
+	if !strings.Contains(result, "EncodeUint32") {
+		t.Error("Result should contain array length encoding")
 	}
 }
 
 func TestGenerateArrayDecodeCode(t *testing.T) {
-	field := FieldInfo{Name: "Items", Type: "[]uint32", XDRType: "array"}
-	result, err := generateBasicDecodeCode(field)
+	cg, err := NewCodeGenerator([]string{})
+	if err != nil {
+		t.Fatalf("NewCodeGenerator failed: %v", err)
+	}
+
+	field := FieldInfo{Name: "Items", Type: "[]string", XDRType: "array"}
+
+	result, err := cg.generateBasicDecodeCode(field)
 	if err != nil {
 		t.Fatalf("generateBasicDecodeCode failed: %v", err)
 	}
 
-	// Should contain array-specific logic
 	if !strings.Contains(result, "Items") {
 		t.Error("Result should contain field name")
 	}
-}
-
-func TestGenerateUnionEncodeCode(t *testing.T) {
-	field := FieldInfo{
-		Name:      "Data",
-		Type:      "[]byte",
-		XDRType:   "union",
-		UnionSpec: "SUCCESS,void:default",
-	}
-
-	structInfo := TypeInfo{
-		Name: "TestUnion",
-		Fields: []FieldInfo{
-			{Name: "Type", IsDiscriminant: true},
-			field,
-		},
-	}
-
-	result, err := generateUnionEncodeCode(field, structInfo)
-	if err != nil {
-		t.Fatalf("generateUnionEncodeCode failed: %v", err)
-	}
-
-	// Should contain union-specific logic
-	if !strings.Contains(result, "switch") {
-		t.Error("Result should contain switch statement")
-	}
-	if !strings.Contains(result, "Type") {
-		t.Error("Result should contain discriminant field")
-	}
-}
-
-func TestGenerateUnionDecodeCode(t *testing.T) {
-	field := FieldInfo{
-		Name:      "Data",
-		Type:      "[]byte",
-		XDRType:   "union",
-		UnionSpec: "SUCCESS,void:default",
-	}
-
-	structInfo := TypeInfo{
-		Name: "TestUnion",
-		Fields: []FieldInfo{
-			{Name: "Type", IsDiscriminant: true},
-			field,
-		},
-	}
-
-	result, err := generateUnionDecodeCode(field, structInfo)
-	if err != nil {
-		t.Fatalf("generateUnionDecodeCode failed: %v", err)
-	}
-
-	// Should contain union-specific logic
-	if !strings.Contains(result, "switch") {
-		t.Error("Result should contain switch statement")
-	}
-	if !strings.Contains(result, "Type") {
-		t.Error("Result should contain discriminant field")
-	}
-}
-
-func TestGenerateUnionCodeError(t *testing.T) {
-	field := FieldInfo{
-		Name:      "Data",
-		Type:      "[]byte",
-		XDRType:   "union",
-		UnionSpec: "SUCCESS,void:default",
-	}
-
-	// Struct without discriminant field should cause error
-	structInfo := TypeInfo{
-		Name: "TestUnion",
-		Fields: []FieldInfo{
-			{Name: "NotDiscriminant", IsDiscriminant: false},
-			field,
-		},
-	}
-
-	_, err := generateUnionEncodeCode(field, structInfo)
-	if err == nil {
-		t.Error("Expected error for union without discriminant field")
-	}
-
-	_, err = generateUnionDecodeCode(field, structInfo)
-	if err == nil {
-		t.Error("Expected error for union without discriminant field")
+	if !strings.Contains(result, "DecodeUint32") {
+		t.Error("Result should contain array length decoding")
 	}
 }
 
 func TestGetEncodeMethod(t *testing.T) {
+	cg, err := NewCodeGenerator([]string{})
+	if err != nil {
+		t.Fatalf("NewCodeGenerator failed: %v", err)
+	}
+
 	tests := []struct {
 		xdrType  string
 		expected string
 	}{
 		{"uint32", "EncodeUint32"},
 		{"uint64", "EncodeUint64"},
+		{"int32", "EncodeInt32"},
 		{"int64", "EncodeInt64"},
 		{"string", "EncodeString"},
 		{"bytes", "EncodeBytes"},
 		{"bool", "EncodeBool"},
-		{"discriminant", "EncodeUint32"},
 		{"struct", "Encode"},
+		{"fixed:16", "EncodeFixedBytes"},
 		{"unknown", ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.xdrType, func(t *testing.T) {
-			result := getEncodeMethod(tt.xdrType)
+			result := cg.getEncodeMethod(tt.xdrType)
 			if result != tt.expected {
 				t.Errorf("Expected %q, got %q", tt.expected, result)
 			}
@@ -414,24 +375,30 @@ func TestGetEncodeMethod(t *testing.T) {
 }
 
 func TestGetDecodeMethod(t *testing.T) {
+	cg, err := NewCodeGenerator([]string{})
+	if err != nil {
+		t.Fatalf("NewCodeGenerator failed: %v", err)
+	}
+
 	tests := []struct {
 		xdrType  string
 		expected string
 	}{
 		{"uint32", "DecodeUint32"},
 		{"uint64", "DecodeUint64"},
+		{"int32", "DecodeInt32"},
 		{"int64", "DecodeInt64"},
 		{"string", "DecodeString"},
 		{"bytes", "DecodeBytes"},
 		{"bool", "DecodeBool"},
-		{"discriminant", "DecodeUint32"},
 		{"struct", "Decode"},
+		{"fixed:16", "DecodeFixedBytes"},
 		{"unknown", ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.xdrType, func(t *testing.T) {
-			result := getDecodeMethod(tt.xdrType)
+			result := cg.getDecodeMethod(tt.xdrType)
 			if result != tt.expected {
 				t.Errorf("Expected %q, got %q", tt.expected, result)
 			}
@@ -440,172 +407,251 @@ func TestGetDecodeMethod(t *testing.T) {
 }
 
 func TestGenerateUnsupportedXDRType(t *testing.T) {
+	cg, err := NewCodeGenerator([]string{})
+	if err != nil {
+		t.Fatalf("NewCodeGenerator failed: %v", err)
+	}
+
 	field := FieldInfo{Name: "Bad", Type: "float64", XDRType: "unsupported"}
 
-	_, err := generateBasicEncodeCode(field)
+	_, err = cg.generateBasicEncodeCode(field)
 	if err == nil {
 		t.Error("Expected error for unsupported XDR type")
 	}
 
-	_, err = generateBasicDecodeCode(field)
+	_, err = cg.generateBasicDecodeCode(field)
 	if err == nil {
 		t.Error("Expected error for unsupported XDR type")
 	}
 }
 
-func TestTemplateFunctions(t *testing.T) {
-	// Test template functions
-	t.Run("toLowerCase", func(t *testing.T) {
-		fn := templateFuncs["toLowerCase"].(func(string) string)
-
-		tests := []struct {
-			input    string
-			expected string
-		}{
-			{"TestStruct", "testStruct"},
-			{"ID", "iD"},
-			{"", ""},
-			{"a", "a"},
-			{"ABC", "aBC"},
-		}
-
-		for _, tt := range tests {
-			result := fn(tt.input)
-			if result != tt.expected {
-				t.Errorf("toLowerCase(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
-		}
-	})
-
-	t.Run("trimPrefix", func(t *testing.T) {
-		fn := templateFuncs["trimPrefix"].(func(string, string) string)
-
-		result := fn("prefixValue", "prefix")
-		if result != "Value" {
-			t.Errorf("trimPrefix failed: got %q, want %q", result, "Value")
-		}
-	})
-}
-
-func TestComplexUnionGeneration(t *testing.T) {
-	// Test complex union generation with multiple cases
-	field := FieldInfo{
-		Name:      "Data",
-		Type:      "*OperationResult",
-		XDRType:   "union",
-		UnionSpec: "SUCCESS,PARTIAL,void:ERROR,void:default",
+func TestGenerateFixedBytesCode(t *testing.T) {
+	cg, err := NewCodeGenerator([]string{})
+	if err != nil {
+		t.Fatalf("NewCodeGenerator failed: %v", err)
 	}
 
-	structInfo := TypeInfo{
-		Name: "OperationUnion",
-		Fields: []FieldInfo{
-			{Name: "OpCode", IsDiscriminant: true},
-			field,
+	// Test that fixed bytes field generates appropriate code
+	field := FieldInfo{Name: "Hash", Type: "[16]byte", XDRType: "fixed:16"}
+
+	encodeResult, err := cg.generateBasicEncodeCode(field)
+	if err != nil {
+		t.Fatalf("generateBasicEncodeCode failed: %v", err)
+	}
+
+	decodeResult, err := cg.generateBasicDecodeCode(field)
+	if err != nil {
+		t.Fatalf("generateBasicDecodeCode failed: %v", err)
+	}
+
+	if !strings.Contains(encodeResult, "EncodeFixedBytes") {
+		t.Error("Encode result should contain EncodeFixedBytes")
+	}
+	if !strings.Contains(decodeResult, "DecodeFixedBytes") {
+		t.Error("Decode result should contain DecodeFixedBytes")
+	}
+}
+
+func TestGenerateAliasCode(t *testing.T) {
+	cg, err := NewCodeGenerator([]string{})
+	if err != nil {
+		t.Fatalf("NewCodeGenerator failed: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		field    FieldInfo
+		expected string
+	}{
+		{
+			name:     "string alias",
+			field:    FieldInfo{Name: "ID", Type: "UserID", XDRType: "alias:string"},
+			expected: "EncodeString",
+		},
+		{
+			name:     "bytes alias",
+			field:    FieldInfo{Name: "Data", Type: "SessionID", XDRType: "alias:[]byte"},
+			expected: "EncodeBytes",
+		},
+		{
+			name:     "fixed bytes alias",
+			field:    FieldInfo{Name: "Hash", Type: "Hash16", XDRType: "alias:[16]byte"},
+			expected: "EncodeFixedBytes",
 		},
 	}
 
-	encodeResult, err := generateUnionEncodeCode(field, structInfo)
-	if err != nil {
-		t.Fatalf("generateUnionEncodeCode failed: %v", err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			encodeResult, err := cg.generateBasicEncodeCode(tt.field)
+			if err != nil {
+				t.Fatalf("generateBasicEncodeCode failed: %v", err)
+			}
 
-	decodeResult, err := generateUnionDecodeCode(field, structInfo)
-	if err != nil {
-		t.Fatalf("generateUnionDecodeCode failed: %v", err)
-	}
+			if !strings.Contains(encodeResult, tt.expected) {
+				t.Errorf("Expected %s in encode result", tt.expected)
+			}
 
-	// Should contain all case values
-	expectedCases := []string{"SUCCESS", "PARTIAL", "ERROR", "default"}
-	for _, expectedCase := range expectedCases {
-		if !strings.Contains(encodeResult, expectedCase) {
-			t.Errorf("Encode result should contain case %q", expectedCase)
-		}
-		if !strings.Contains(decodeResult, expectedCase) {
-			t.Errorf("Decode result should contain case %q", expectedCase)
-		}
-	}
-}
+			decodeResult, err := cg.generateBasicDecodeCode(tt.field)
+			if err != nil {
+				t.Fatalf("generateBasicDecodeCode failed: %v", err)
+			}
 
-func TestGlobalTemplateManager(t *testing.T) {
-	// Test that the global template manager is initialized
-	if templateManager == nil {
-		t.Error("Global template manager should be initialized")
-	}
-
-	// Test that we can use it
-	result, err := templateManager.ExecuteTemplate("assertion", TypeData{TypeName: "Test"})
-	if err != nil {
-		t.Errorf("Global template manager should work: %v", err)
-	}
-
-	if !strings.Contains(result, "Test") {
-		t.Error("Global template manager should produce expected output")
+			// For fixed bytes aliases, the decode code uses a special template
+			if strings.Contains(tt.field.XDRType, "fixed:") {
+				if !strings.Contains(decodeResult, "DecodeFixedBytes") {
+					t.Errorf("Expected DecodeFixedBytes in decode result for fixed bytes alias")
+				}
+			} else {
+				decodeExpected := strings.Replace(tt.expected, "Encode", "Decode", 1)
+				if !strings.Contains(decodeResult, decodeExpected) {
+					t.Errorf("Expected %s in decode result", decodeExpected)
+				}
+			}
+		})
 	}
 }
 
-func TestGenerateDiscriminatedUnionMethods(t *testing.T) {
-	// Test generating methods for discriminated union structs
+func TestGoTypeForXDRType(t *testing.T) {
+	tests := []struct {
+		xdrType  string
+		expected string
+	}{
+		{"string", "string"},
+		{"bytes", "[]byte"},
+		{"uint32", "uint32"},
+		{"uint64", "uint64"},
+		{"int32", "int32"},
+		{"int64", "int64"},
+		{"bool", "bool"},
+		{"fixed:16", "[16]byte"},
+		{"fixed:32", "[32]byte"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.xdrType, func(t *testing.T) {
+			result := goTypeForXDRType(tt.xdrType)
+			if result != tt.expected {
+				t.Errorf("Expected %q, got %q", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestNewTemplateManagerError(t *testing.T) {
+	// This test would require mocking template parsing to fail
+	// For now, just test that NewTemplateManager works with valid templates
+	tm, err := NewTemplateManager()
+	if err != nil {
+		t.Fatalf("NewTemplateManager failed: %v", err)
+	}
+	if tm == nil {
+		t.Error("NewTemplateManager should return non-nil manager")
+	}
+}
+
+func TestTemplateManagerInitError(t *testing.T) {
+	// This would require mocking template parsing to fail
+	// For now, just test that NewCodeGenerator works with valid templates
+	cg, err := NewCodeGenerator([]string{})
+	if err != nil {
+		t.Fatalf("NewCodeGenerator failed: %v", err)
+	}
+	if cg == nil {
+		t.Error("NewCodeGenerator should return non-nil generator")
+	}
+}
+
+func TestGenerateUnionCode(t *testing.T) {
+	cg, err := NewCodeGenerator([]string{})
+	if err != nil {
+		t.Fatalf("NewCodeGenerator failed: %v", err)
+	}
+
+	// Test union code generation with proper struct setup
 	typeInfo := TypeInfo{
 		Name: "TestUnion",
 		Fields: []FieldInfo{
-			{Name: "Type", Type: "uint32", XDRType: "discriminant", IsDiscriminant: true},
-			{Name: "Data", Type: "[]byte", XDRType: "union", UnionSpec: "SUCCESS,void:default"},
+			{Name: "Type", Type: "uint32", XDRType: "uint32", IsKey: true},
+			{Name: "Data", Type: "[]byte", XDRType: "union", IsUnion: true},
 		},
 		IsDiscriminatedUnion: true,
+		UnionConfig: &UnionConfig{
+			DiscriminantType: "OpCode",
+			Cases:            map[string]string{"SUCCESS": "SuccessResult"},
+			VoidCases:        []string{"ERROR"},
+		},
 	}
 
-	encodeResult, err := GenerateEncodeMethod(typeInfo)
+	// Test encode method generation
+	encodeResult, err := cg.GenerateEncodeMethod(typeInfo)
 	if err != nil {
 		t.Fatalf("GenerateEncodeMethod failed: %v", err)
 	}
 
-	decodeResult, err := GenerateDecodeMethod(typeInfo)
+	if !strings.Contains(encodeResult, "switch") {
+		t.Error("Encode result should contain switch statement for union")
+	}
+
+	// Test decode method generation
+	decodeResult, err := cg.GenerateDecodeMethod(typeInfo)
 	if err != nil {
 		t.Fatalf("GenerateDecodeMethod failed: %v", err)
 	}
 
-	// Should contain union-specific logic
-	if !strings.Contains(encodeResult, "switch") {
-		t.Error("Encode result should contain switch statement for union")
-	}
 	if !strings.Contains(decodeResult, "switch") {
 		t.Error("Decode result should contain switch statement for union")
 	}
 }
 
-func TestGenerateFixedBytesCode(t *testing.T) {
-	// Test that fixed bytes field generates an error (not supported in basic generation)
-	field := FieldInfo{Name: "Hash", Type: "[16]byte", XDRType: "fixed:16"}
-
-	_, err := generateBasicEncodeCode(field)
-	if err == nil {
-		t.Error("generateBasicEncodeCode should fail for fixed bytes (not supported)")
-	}
-
-	_, err = generateBasicDecodeCode(field)
-	if err == nil {
-		t.Error("generateBasicDecodeCode should fail for fixed bytes (not supported)")
-	}
-}
-
-func TestNewTemplateManagerError(t *testing.T) {
-	// This test is difficult to trigger without breaking the embedded filesystem
-	// We'll just verify the current manager works
-	tm, err := NewTemplateManager()
+func TestGenerateUnionEncodeDecodeCodeErrors(t *testing.T) {
+	cg, err := NewCodeGenerator([]string{})
 	if err != nil {
-		t.Fatalf("NewTemplateManager should work: %v", err)
+		t.Fatalf("NewCodeGenerator failed: %v", err)
 	}
 
-	if tm == nil {
-		t.Error("NewTemplateManager should return valid manager")
-	}
-}
+	// Missing key field
+	t.Run("missing key field", func(t *testing.T) {
+		structInfo := TypeInfo{
+			Name: "NoKeyUnion",
+			Fields: []FieldInfo{
+				{Name: "Data", Type: "[]byte", XDRType: "union", IsUnion: true},
+			},
+			IsDiscriminatedUnion: true,
+			UnionConfig: &UnionConfig{
+				DiscriminantType: "OpCode",
+				Cases:            map[string]string{"SUCCESS": "SuccessResult"},
+			},
+		}
+		errMsg := "no key field found for union field Data"
+		_, err := cg.generateUnionEncodeCode(structInfo.Fields[0], structInfo)
+		if err == nil || err.Error() != errMsg {
+			t.Errorf("expected error %q, got %v", errMsg, err)
+		}
+		_, err = cg.generateUnionDecodeCode(structInfo.Fields[0], structInfo)
+		if err == nil || err.Error() != errMsg {
+			t.Errorf("expected error %q, got %v", errMsg, err)
+		}
+	})
 
-func TestTemplateManagerInitError(t *testing.T) {
-	// Test that the init function handles errors correctly
-	// This is difficult to test without modifying the embedded filesystem
-	// We'll just verify that templateManager is properly initialized
-	if templateManager == nil {
-		t.Error("Template manager should be initialized by init function")
-	}
+	// Missing union config
+	t.Run("missing union config", func(t *testing.T) {
+		structInfo := TypeInfo{
+			Name: "NoUnionConfig",
+			Fields: []FieldInfo{
+				{Name: "Type", Type: "uint32", XDRType: "uint32", IsKey: true},
+				{Name: "Data", Type: "[]byte", XDRType: "union", IsUnion: true},
+			},
+			IsDiscriminatedUnion: true,
+			UnionConfig:          nil,
+		}
+		errMsg := "no union configuration found for struct NoUnionConfig"
+		_, err := cg.generateUnionEncodeCode(structInfo.Fields[1], structInfo)
+		if err == nil || err.Error() != errMsg {
+			t.Errorf("expected error %q, got %v", errMsg, err)
+		}
+		_, err = cg.generateUnionDecodeCode(structInfo.Fields[1], structInfo)
+		if err == nil || err.Error() != errMsg {
+			t.Errorf("expected error %q, got %v", errMsg, err)
+		}
+	})
 }

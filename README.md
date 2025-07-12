@@ -1,6 +1,6 @@
 # go-xdr
 
-**Minimum Go version: 1.20**
+**Minimum Go version: 1.24**
 
 An allocation-efficient XDR (External Data Representation) library for Go with code generation support.
 
@@ -126,11 +126,33 @@ go generate
 
 ### Discriminated Unions
 
+Discriminated unions use explicit key/union tagging and comment-based mapping:
+
 ```go
 type OperationResult struct {
-    Status NFSStatus `xdr:"discriminant"`
-    Result []byte    `xdr:"union:NFS4_OK,void:default"`
+    Status uint32 `xdr:"key"`
+    Data   []byte `xdr:"union"`
 }
+
+//xdr:union=uint32,case=0=OpSuccessResult
+// OpSuccessResult is the payload for StatusSuccess
+// (add struct if you want a non-void payload)
+```
+
+- Use `xdr:"key"` for the discriminant field
+- Use `xdr:"union"` for the union payload (or `xdr:"union,default=Type"` for a struct default, or `xdr:"union,default=nil"` for a void default)
+- Use `//xdr:union=DiscriminantType,case=ConstantValue` comments above union payload types to map discriminant values to payload types. Do not use `default` in the comment.
+
+#### Example: Multi-Type Union
+
+```go
+type NetworkMessage struct {
+    Type    uint32 `xdr:"key"`
+    Payload []byte `xdr:"union"`
+}
+
+//xdr:union=uint32,case=1=TextPayload,case=2=BinaryPayload
+// No default case: only these discriminant values are valid
 ```
 
 ### Building
