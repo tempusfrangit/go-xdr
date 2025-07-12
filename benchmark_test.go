@@ -1,19 +1,21 @@
 //go:build bench
 // +build bench
 
-package xdr
+package xdr_test
 
 import (
 	"bytes"
 	"math/rand"
 	"testing"
+
+	"github.com/tempusfrangit/go-xdr"
 )
 
 // BenchmarkSuite provides comprehensive performance benchmarks for XDR operations
 
 func BenchmarkEncodePrimitives(b *testing.B) {
 	buf := make([]byte, 1024)
-	encoder := NewEncoder(buf)
+	encoder := xdr.NewEncoder(buf)
 
 	b.Run("Uint32", func(b *testing.B) {
 		b.ResetTimer()
@@ -64,7 +66,7 @@ func BenchmarkEncodePrimitives(b *testing.B) {
 func BenchmarkDecodePrimitives(b *testing.B) {
 	// Pre-encode test data
 	buf := make([]byte, 1024)
-	encoder := NewEncoder(buf)
+	encoder := xdr.NewEncoder(buf)
 	encoder.EncodeUint32(0x12345678)
 	uint32Data := encoder.Bytes()
 
@@ -87,7 +89,7 @@ func BenchmarkDecodePrimitives(b *testing.B) {
 	b.Run("Uint32", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			decoder := NewDecoder(uint32Data)
+			decoder := xdr.NewDecoder(uint32Data)
 			decoder.DecodeUint32()
 		}
 		b.SetBytes(4)
@@ -96,7 +98,7 @@ func BenchmarkDecodePrimitives(b *testing.B) {
 	b.Run("Uint64", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			decoder := NewDecoder(uint64Data)
+			decoder := xdr.NewDecoder(uint64Data)
 			decoder.DecodeUint64()
 		}
 		b.SetBytes(8)
@@ -105,7 +107,7 @@ func BenchmarkDecodePrimitives(b *testing.B) {
 	b.Run("Int32", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			decoder := NewDecoder(int32Data)
+			decoder := xdr.NewDecoder(int32Data)
 			decoder.DecodeInt32()
 		}
 		b.SetBytes(4)
@@ -114,7 +116,7 @@ func BenchmarkDecodePrimitives(b *testing.B) {
 	b.Run("Int64", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			decoder := NewDecoder(int64Data)
+			decoder := xdr.NewDecoder(int64Data)
 			decoder.DecodeInt64()
 		}
 		b.SetBytes(8)
@@ -123,7 +125,7 @@ func BenchmarkDecodePrimitives(b *testing.B) {
 	b.Run("Bool", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			decoder := NewDecoder(boolData)
+			decoder := xdr.NewDecoder(boolData)
 			decoder.DecodeBool()
 		}
 		b.SetBytes(4)
@@ -132,7 +134,7 @@ func BenchmarkDecodePrimitives(b *testing.B) {
 
 func BenchmarkEncodeStrings(b *testing.B) {
 	buf := make([]byte, 1024)
-	encoder := NewEncoder(buf)
+	encoder := xdr.NewEncoder(buf)
 
 	testStrings := []string{
 		"",
@@ -157,7 +159,7 @@ func BenchmarkEncodeStrings(b *testing.B) {
 
 func BenchmarkDecodeStrings(b *testing.B) {
 	buf := make([]byte, 1024)
-	encoder := NewEncoder(buf)
+	encoder := xdr.NewEncoder(buf)
 
 	testStrings := []string{
 		"",
@@ -177,7 +179,7 @@ func BenchmarkDecodeStrings(b *testing.B) {
 		b.Run(str+"_len_"+string(rune(len(str))), func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				decoder := NewDecoder(data)
+				decoder := xdr.NewDecoder(data)
 				decoder.DecodeString()
 			}
 			b.SetBytes(int64(len(str) + 4))
@@ -187,7 +189,7 @@ func BenchmarkDecodeStrings(b *testing.B) {
 
 func BenchmarkEncodeBytes(b *testing.B) {
 	buf := make([]byte, 64*1024) // 64KB buffer
-	encoder := NewEncoder(buf)
+	encoder := xdr.NewEncoder(buf)
 
 	sizes := []int{0, 1, 4, 16, 64, 256, 1024, 4096, 16384}
 
@@ -208,7 +210,7 @@ func BenchmarkEncodeBytes(b *testing.B) {
 
 func BenchmarkDecodeBytes(b *testing.B) {
 	buf := make([]byte, 64*1024) // 64KB buffer
-	encoder := NewEncoder(buf)
+	encoder := xdr.NewEncoder(buf)
 
 	sizes := []int{0, 1, 4, 16, 64, 256, 1024, 4096, 16384}
 
@@ -224,7 +226,7 @@ func BenchmarkDecodeBytes(b *testing.B) {
 		b.Run(string(rune(size))+"_bytes", func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				decoder := NewDecoder(encodedData)
+				decoder := xdr.NewDecoder(encodedData)
 				decoder.DecodeBytes()
 			}
 			b.SetBytes(int64(size + 4))
@@ -234,7 +236,7 @@ func BenchmarkDecodeBytes(b *testing.B) {
 
 func BenchmarkEncodeFixedBytes(b *testing.B) {
 	buf := make([]byte, 64*1024) // 64KB buffer
-	encoder := NewEncoder(buf)
+	encoder := xdr.NewEncoder(buf)
 
 	sizes := []int{1, 4, 16, 64, 256, 1024, 4096, 16384}
 
@@ -255,7 +257,7 @@ func BenchmarkEncodeFixedBytes(b *testing.B) {
 
 func BenchmarkDecodeFixedBytes(b *testing.B) {
 	buf := make([]byte, 64*1024) // 64KB buffer
-	encoder := NewEncoder(buf)
+	encoder := xdr.NewEncoder(buf)
 
 	sizes := []int{1, 4, 16, 64, 256, 1024, 4096, 16384}
 
@@ -271,7 +273,7 @@ func BenchmarkDecodeFixedBytes(b *testing.B) {
 		b.Run(string(rune(size))+"_bytes", func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				decoder := NewDecoder(encodedData)
+				decoder := xdr.NewDecoder(encodedData)
 				decoder.DecodeFixedBytes(size)
 			}
 			b.SetBytes(int64(size))
@@ -281,7 +283,7 @@ func BenchmarkDecodeFixedBytes(b *testing.B) {
 
 func BenchmarkDecodeFixedBytesInto(b *testing.B) {
 	buf := make([]byte, 64*1024) // 64KB buffer
-	encoder := NewEncoder(buf)
+	encoder := xdr.NewEncoder(buf)
 
 	sizes := []int{1, 4, 16, 64, 256, 1024, 4096, 16384}
 
@@ -300,7 +302,7 @@ func BenchmarkDecodeFixedBytesInto(b *testing.B) {
 		b.Run(string(rune(size))+"_bytes", func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				decoder := NewDecoder(encodedData)
+				decoder := xdr.NewDecoder(encodedData)
 				decoder.DecodeFixedBytesInto(dst)
 			}
 			b.SetBytes(int64(size))
@@ -315,7 +317,7 @@ func BenchmarkDecodeFixedBytesComparison(b *testing.B) {
 	rand.Read(testData)
 
 	buf := make([]byte, 64)
-	encoder := NewEncoder(buf)
+	encoder := xdr.NewEncoder(buf)
 	encoder.EncodeFixedBytes(testData)
 	encodedData := make([]byte, len(encoder.Bytes()))
 	copy(encodedData, encoder.Bytes())
@@ -323,7 +325,7 @@ func BenchmarkDecodeFixedBytesComparison(b *testing.B) {
 	b.Run("DecodeFixedBytes_allocating", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			decoder := NewDecoder(encodedData)
+			decoder := xdr.NewDecoder(encodedData)
 			_, err := decoder.DecodeFixedBytes(16)
 			if err != nil {
 				b.Fatal(err)
@@ -337,7 +339,7 @@ func BenchmarkDecodeFixedBytesComparison(b *testing.B) {
 	b.Run("DecodeFixedBytesInto_zero_alloc", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			decoder := NewDecoder(encodedData)
+			decoder := xdr.NewDecoder(encodedData)
 			err := decoder.DecodeFixedBytesInto(dst)
 			if err != nil {
 				b.Fatal(err)
@@ -355,7 +357,7 @@ func BenchmarkDecodeFixedBytesComparison(b *testing.B) {
 	b.Run("DecodeFixedBytesInto_struct_field", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			decoder := NewDecoder(encodedData)
+			decoder := xdr.NewDecoder(encodedData)
 			err := decoder.DecodeFixedBytesInto(testStruct.Hash[:])
 			if err != nil {
 				b.Fatal(err)
@@ -367,7 +369,7 @@ func BenchmarkDecodeFixedBytesComparison(b *testing.B) {
 
 func BenchmarkRoundTrip(b *testing.B) {
 	buf := make([]byte, 1024)
-	encoder := NewEncoder(buf)
+	encoder := xdr.NewEncoder(buf)
 
 	b.Run("Uint32", func(b *testing.B) {
 		b.ResetTimer()
@@ -375,7 +377,7 @@ func BenchmarkRoundTrip(b *testing.B) {
 			encoder.Reset(buf)
 			encoder.EncodeUint32(0x12345678)
 			data := encoder.Bytes()
-			decoder := NewDecoder(data)
+			decoder := xdr.NewDecoder(data)
 			decoder.DecodeUint32()
 		}
 		b.SetBytes(4)
@@ -388,7 +390,7 @@ func BenchmarkRoundTrip(b *testing.B) {
 			encoder.Reset(buf)
 			encoder.EncodeString(testStr)
 			data := encoder.Bytes()
-			decoder := NewDecoder(data)
+			decoder := xdr.NewDecoder(data)
 			decoder.DecodeString()
 		}
 		b.SetBytes(int64(len(testStr) + 4))
@@ -402,7 +404,7 @@ func BenchmarkRoundTrip(b *testing.B) {
 			encoder.Reset(buf)
 			encoder.EncodeBytes(testData)
 			data := encoder.Bytes()
-			decoder := NewDecoder(data)
+			decoder := xdr.NewDecoder(data)
 			decoder.DecodeBytes()
 		}
 		b.SetBytes(1024 + 4)
@@ -417,7 +419,7 @@ type BenchStruct struct {
 	Count uint64
 }
 
-func (bs *BenchStruct) Encode(enc *Encoder) error {
+func (bs *BenchStruct) Encode(enc *xdr.Encoder) error {
 	if err := enc.EncodeUint32(bs.ID); err != nil {
 		return err
 	}
@@ -433,7 +435,7 @@ func (bs *BenchStruct) Encode(enc *Encoder) error {
 	return nil
 }
 
-func (bs *BenchStruct) Decode(dec *Decoder) error {
+func (bs *BenchStruct) Decode(dec *xdr.Decoder) error {
 	id, err := dec.DecodeUint32()
 	if err != nil {
 		return err
@@ -462,7 +464,7 @@ func (bs *BenchStruct) Decode(dec *Decoder) error {
 }
 
 // Compile-time assertion that BenchStruct implements Codec
-var _ Codec = (*BenchStruct)(nil)
+var _ xdr.Codec = (*BenchStruct)(nil)
 
 func BenchmarkCodecRoundTrip(b *testing.B) {
 	impl := &BenchStruct{
@@ -476,14 +478,14 @@ func BenchmarkCodecRoundTrip(b *testing.B) {
 	b.Run("Marshal", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_, err := Marshal(impl)
+			_, err := xdr.Marshal(impl)
 			if err != nil {
 				b.Fatalf("Marshal failed: %v", err)
 			}
 		}
 	})
 
-	data, err := Marshal(impl)
+	data, err := xdr.Marshal(impl)
 	if err != nil {
 		b.Fatalf("Marshal failed: %v", err)
 	}
@@ -492,7 +494,7 @@ func BenchmarkCodecRoundTrip(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			var decoded BenchStruct
-			err := Unmarshal(data, &decoded)
+			err := xdr.Unmarshal(data, &decoded)
 			if err != nil {
 				b.Fatalf("Unmarshal failed: %v", err)
 			}
@@ -502,12 +504,12 @@ func BenchmarkCodecRoundTrip(b *testing.B) {
 	b.Run("RoundTrip", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			data, err := Marshal(impl)
+			data, err := xdr.Marshal(impl)
 			if err != nil {
 				b.Fatalf("Marshal failed: %v", err)
 			}
 			var decoded BenchStruct
-			err = Unmarshal(data, &decoded)
+			err = xdr.Unmarshal(data, &decoded)
 			if err != nil {
 				b.Fatalf("Unmarshal failed: %v", err)
 			}
@@ -519,7 +521,7 @@ func BenchmarkCodecRoundTrip(b *testing.B) {
 func BenchmarkMemoryAllocation(b *testing.B) {
 	b.Run("EncoderReuse", func(b *testing.B) {
 		buf := make([]byte, 1024)
-		encoder := NewEncoder(buf)
+		encoder := xdr.NewEncoder(buf)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			encoder.Reset(buf)
@@ -533,7 +535,7 @@ func BenchmarkMemoryAllocation(b *testing.B) {
 		buf := make([]byte, 1024)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			encoder := NewEncoder(buf)
+			encoder := xdr.NewEncoder(buf)
 			encoder.EncodeUint32(0x12345678)
 			encoder.EncodeString("hello")
 			encoder.EncodeBytes([]byte("world"))
@@ -542,13 +544,13 @@ func BenchmarkMemoryAllocation(b *testing.B) {
 
 	b.Run("DecoderReuse", func(b *testing.B) {
 		buf := make([]byte, 1024)
-		encoder := NewEncoder(buf)
+		encoder := xdr.NewEncoder(buf)
 		encoder.EncodeUint32(0x12345678)
 		encoder.EncodeString("hello")
 		encoder.EncodeBytes([]byte("world"))
 		data := encoder.Bytes()
 
-		decoder := NewDecoder(data)
+		decoder := xdr.NewDecoder(data)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			decoder.Reset(data)
@@ -560,7 +562,7 @@ func BenchmarkMemoryAllocation(b *testing.B) {
 
 	b.Run("DecoderNew", func(b *testing.B) {
 		buf := make([]byte, 1024)
-		encoder := NewEncoder(buf)
+		encoder := xdr.NewEncoder(buf)
 		encoder.EncodeUint32(0x12345678)
 		encoder.EncodeString("hello")
 		encoder.EncodeBytes([]byte("world"))
@@ -568,7 +570,7 @@ func BenchmarkMemoryAllocation(b *testing.B) {
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			decoder := NewDecoder(data)
+			decoder := xdr.NewDecoder(data)
 			decoder.DecodeUint32()
 			decoder.DecodeString()
 			decoder.DecodeBytes()
@@ -583,7 +585,7 @@ func BenchmarkComparison(b *testing.B) {
 
 	b.Run("XDR_EncodeBytes", func(b *testing.B) {
 		buf := make([]byte, 2048)
-		encoder := NewEncoder(buf)
+		encoder := xdr.NewEncoder(buf)
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			encoder.Reset(buf)
@@ -609,5 +611,92 @@ func BenchmarkComparison(b *testing.B) {
 			buf.Write(data)
 		}
 		b.SetBytes(1024)
+	})
+}
+
+// Discriminated union types for memory benchmarks
+type MemBenchStatus uint32
+
+const (
+	MemBenchStatusSuccess MemBenchStatus = 0
+	MemBenchStatusError   MemBenchStatus = 1
+	MemBenchStatusPending MemBenchStatus = 2
+)
+
+type MemBenchResult struct {
+	Status MemBenchStatus `xdr:"key"`
+	Data   []byte         `xdr:"union,default=nil"`
+}
+
+//xdr:union=MemBenchResult,case=MemBenchStatusSuccess
+type MemBenchSuccessResult struct {
+	Message string `xdr:"string"`
+	Details []byte `xdr:"bytes"`
+}
+
+func BenchmarkDiscriminatedUnionMemory(b *testing.B) {
+	// Test memory allocation for discriminated unions
+	successResult := &MemBenchResult{
+		Status: MemBenchStatusSuccess,
+		Data:   []byte("success payload with some data"),
+	}
+
+	errorResult := &MemBenchResult{
+		Status: MemBenchStatusError,
+		Data:   nil, // void case
+	}
+
+	b.Run("SuccessCase", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, err := xdr.Marshal(successResult)
+			if err != nil {
+				b.Fatalf("Marshal failed: %v", err)
+			}
+		}
+		b.SetBytes(int64(len(successResult.Data) + 4)) // discriminant + payload
+	})
+
+	b.Run("VoidCase", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_, err := xdr.Marshal(errorResult)
+			if err != nil {
+				b.Fatalf("Marshal failed: %v", err)
+			}
+		}
+		b.SetBytes(4) // discriminant only
+	})
+
+	b.Run("SuccessUnmarshal", func(b *testing.B) {
+		data, err := xdr.Marshal(successResult)
+		if err != nil {
+			b.Fatalf("Marshal failed: %v", err)
+		}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			var result MemBenchResult
+			err := xdr.Unmarshal(data, &result)
+			if err != nil {
+				b.Fatalf("Unmarshal failed: %v", err)
+			}
+		}
+		b.SetBytes(int64(len(data)))
+	})
+
+	b.Run("VoidUnmarshal", func(b *testing.B) {
+		data, err := xdr.Marshal(errorResult)
+		if err != nil {
+			b.Fatalf("Marshal failed: %v", err)
+		}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			var result MemBenchResult
+			err := xdr.Unmarshal(data, &result)
+			if err != nil {
+				b.Fatalf("Unmarshal failed: %v", err)
+			}
+		}
+		b.SetBytes(int64(len(data)))
 	})
 }

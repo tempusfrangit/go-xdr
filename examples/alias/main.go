@@ -1,6 +1,6 @@
 package main
 
-//go:generate go run ../../tools/xdrgen/main.go main.go
+//go:generate ../../bin/xdrgen $GOFILE
 
 import (
 	"fmt"

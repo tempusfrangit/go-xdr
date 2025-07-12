@@ -9,7 +9,7 @@ import (
 
 // OpCode represents operation codes
 //
-//go:generate xdrgen $GOFILE
+//go:generate ./bin/xdrgen $GOFILE
 type OpCode uint32
 
 const (
@@ -19,12 +19,10 @@ const (
 	OpWrite OpCode = 4
 )
 
-// Operation represents an operation with discriminated union
-//
-//xdr:union=OpCode,case=OpOpen=OpOpenResult,case=OpRead=OpReadResult,case=OpWrite=OpWriteResult
+// Operation represents an operation
 type Operation struct {
-	OpCode OpCode `xdr:"key"`               // Discriminant field
-	Result []byte `xdr:"union,default=nil"` // Union payload with void default
+	OpCode OpCode `xdr:"alias"` // Operation code
+	Result []byte `xdr:"bytes"` // Result data
 }
 
 // OpOpenResult is the payload for OpOpen

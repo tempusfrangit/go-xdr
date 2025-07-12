@@ -31,8 +31,7 @@
 !/examples/**/go.sum
 !/examples/**/README.md
 !/examples/**/Makefile
-# But ignore generated XDR files
-/examples/**/*_xdr.go
+
 
 # Allow tools directory
 !/tools/

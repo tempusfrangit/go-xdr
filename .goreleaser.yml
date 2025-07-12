@@ -5,6 +5,7 @@ project_name: go-xdr
 before:
   hooks:
     - go mod tidy
+    - sh -c "cd tools/xdrgen && go build -o ../../bin/xdrgen ."
     - go generate ./...
 
 builds:

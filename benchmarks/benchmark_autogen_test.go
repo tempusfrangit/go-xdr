@@ -36,49 +36,67 @@ type BenchmarkConfig struct {
 }
 
 // Discriminated union constants
+type BenchmarkStatus uint32
+
 const (
-	BenchmarkStatusSuccess = 0
-	BenchmarkStatusError   = 1
-	BenchmarkStatusPending = 2
+	BenchmarkStatusSuccess BenchmarkStatus = 0
+	BenchmarkStatusError   BenchmarkStatus = 1
+	BenchmarkStatusPending BenchmarkStatus = 2
 )
 
 // BenchmarkResult for testing discriminated union performance
 type BenchmarkResult struct {
-	Status uint32 `xdr:"key"`
-	Data   []byte `xdr:"union"`
+	Status BenchmarkStatus `xdr:"key"`
+	Data   []byte          `xdr:"union"`
 }
 
-//xdr:union=uint32,case=0=BenchmarkSuccessResult
+//xdr:union=BenchmarkResult,case=BenchmarkStatusSuccess
+type BenchmarkSuccessResult struct {
+	Message string `xdr:"string"`
+}
 
 // Message type constants
+type BenchmarkMsgType uint32
+
 const (
-	BenchmarkMsgText   = 1
-	BenchmarkMsgBinary = 2
-	BenchmarkMsgVoid   = 3
+	BenchmarkMsgText   BenchmarkMsgType = 1
+	BenchmarkMsgBinary BenchmarkMsgType = 2
+	BenchmarkMsgVoid   BenchmarkMsgType = 3
 )
 
 // BenchmarkMessage for testing multi-case discriminated union
 type BenchmarkMessage struct {
-	Type    uint32 `xdr:"key"`
-	Payload []byte `xdr:"union"`
+	Type    BenchmarkMsgType `xdr:"key"`
+	Payload []byte           `xdr:"union"`
 }
 
-//xdr:union=uint32,case=1=BenchmarkTextPayload,case=2=BenchmarkBinaryPayload
+//xdr:union=BenchmarkMessage,case=BenchmarkMsgText
+type BenchmarkTextPayload struct {
+	Content string `xdr:"string"`
+	Sender  string `xdr:"string"`
+}
 
 // Operation type constants
+type BenchmarkOpType uint32
+
 const (
-	BenchmarkOpRead   = 1
-	BenchmarkOpWrite  = 2
-	BenchmarkOpDelete = 3
+	BenchmarkOpRead   BenchmarkOpType = 1
+	BenchmarkOpWrite  BenchmarkOpType = 2
+	BenchmarkOpDelete BenchmarkOpType = 3
 )
 
 // BenchmarkOperation for testing complex discriminated union
 type BenchmarkOperation struct {
-	OpType uint32 `xdr:"key"`
-	Data   []byte `xdr:"union"`
+	OpType BenchmarkOpType `xdr:"key"`
+	Data   []byte          `xdr:"union"`
 }
 
-//xdr:union=uint32,case=1=BenchmarkReadResult
+//xdr:union=BenchmarkOperation,case=BenchmarkOpRead
+type BenchmarkReadResult struct {
+	Success bool   `xdr:"bool"`
+	Data    []byte `xdr:"bytes"`
+	Size    uint32 `xdr:"uint32"`
+}
 
 // Test data for benchmarks
 var (

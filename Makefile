@@ -17,15 +17,15 @@ generate-test:
 	@echo "Generating XDR code for test files..."
 	@if [ -f codegen_test.go ]; then \
 		echo "Generating for codegen_test.go..."; \
-		./bin/xdrgen codegen_test.go; \
+		$(PWD)/bin/xdrgen codegen_test.go; \
 	fi
 	@if [ -f xdr_alias_test.go ]; then \
 		echo "Generating for xdr_alias_test.go..."; \
-		./bin/xdrgen xdr_alias_test.go; \
+		$(PWD)/bin/xdrgen xdr_alias_test.go; \
 	fi
 	@if [ -f benchmarks/benchmark_autogen_test.go ]; then \
 		echo "Generating for benchmarks/benchmark_autogen_test.go..."; \
-		./bin/xdrgen benchmarks/benchmark_autogen_test.go; \
+		$(PWD)/bin/xdrgen benchmarks/benchmark_autogen_test.go; \
 	fi
 
 # Generate XDR code for all files (regular + test files)

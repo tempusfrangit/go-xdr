@@ -17,10 +17,10 @@ This directory contains comprehensive examples demonstrating different aspects o
 - **Best for**: Rapid development with minimal boilerplate
 
 ### 3. [discriminated-union](discriminated-union/) - Discriminated Unions
+- Clean syntax with automatic void case detection
 - Variant types based on discriminant fields
-- Conditional encoding/decoding
-- Void cases and multiple payload types
-- **Best for**: Protocol implementations with optional fields
+- Conditional encoding/decoding with proper XDR compliance
+- **Best for**: Protocol implementations with optional fields and variant types
 
 ### 4. [mixed-manual](mixed-manual/) - Manual Override
 - Custom XDR implementations

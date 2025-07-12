@@ -16,36 +16,63 @@ This example demonstrates XDR discriminated unions (variant types) where the pre
 - **Void Case**: Union case with no associated data
 - **Type Safety**: Compile-time validation of union specifications
 
-## XDR Union Tags (New Style)
+## XDR Union Tags (Clean Syntax)
 
-- `xdr:"key"` - marks the discriminant field
-- `xdr:"union,default=nil"` - marks the union payload field with a void default (optional)
-- `xdr:"union,default=Type"` - marks the union payload field with a struct default (optional)
-- `xdr:"union"` - marks the union payload field with no default case
-- `//xdr:union=DiscriminantType,case=ConstantValue` - comment above the union payload struct to map discriminant values to payload types. Do not use `default` in the comment.
+- `xdr:"key"` - marks the discriminant field (must be uint32 or uint32 alias)
+- `xdr:"union,default=nil"` - marks the union payload field with void default
+- `//xdr:union=<container>,case=<constant>` - comment on payload struct to map discriminant values
 
 ### Example
 ```go
 type OperationResult struct {
-    Status uint32 `xdr:"key"`
-    Data   []byte `xdr:"union"`
+    Status Status `xdr:"key"`
+    Data   []byte `xdr:"union,default=nil"`
 }
 
-//xdr:union=uint32,case=0=OpSuccessResult
-// OpSuccessResult is the payload for StatusSuccess
-// (add struct if you want a non-void payload)
+// OpSuccessResult for successful operations
+//xdr:union=OperationResult,case=StatusSuccess
+type OpSuccessResult struct {
+    Message string `xdr:"string"`
+}
 ```
 
 ### Multi-Type Union Example
 ```go
 type NetworkMessage struct {
-    Type    uint32 `xdr:"key"`
-    Payload []byte `xdr:"union"`
+    Type    MessageType `xdr:"key"`
+    Payload []byte      `xdr:"union,default=nil"`
 }
 
-//xdr:union=uint32,case=1=TextPayload,case=2=BinaryPayload
-// No default case: only these discriminant values are valid
+// Text payload for text messages
+//xdr:union=NetworkMessage,case=MessageTypeText
+type TextPayload struct {
+    Content string `xdr:"string"`
+    Sender  string `xdr:"string"`
+}
+
+// Binary payload for binary messages
+//xdr:union=NetworkMessage,case=MessageTypeBinary
+type BinaryPayload struct {
+    Data     []byte `xdr:"bytes"`
+    Checksum uint32 `xdr:"uint32"`
+}
 ```
+
+### Automatic Void Cases
+
+Void cases are automatically inferred from constants not mapped to payload structs:
+
+```go
+const (
+    StatusSuccess Status = 0  // mapped to OpSuccessResult
+    StatusError   Status = 1  // void case (no payload)
+    StatusPending Status = 2  // void case (no payload)
+)
+```
+
+- `StatusError` and `StatusPending` are automatically void cases
+- They marshal to 4 bytes total (discriminant only)
+- No explicit configuration needed
 
 ## Running the example
 

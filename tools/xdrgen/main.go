@@ -93,7 +93,7 @@ import (
 )
 
 var silent bool
-var debug = true
+var debug = false
 
 // logf logs a message unless in silent mode
 func logf(format string, args ...any) {
@@ -906,7 +906,7 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 					if unionConfig, exists := unionComments[typeInfo.Name]; exists {
 						typeInfo.UnionConfig = unionConfig
 						if debug {
-							log.Printf("DEBUG: Associated union config with container struct %s", typeInfo.Name)
+							debugf("Associated union config with container struct %s", typeInfo.Name)
 						}
 					}
 				} else {
@@ -918,7 +918,7 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 							if structName == "" {
 								unionConfig.Cases[constantName] = typeInfo.Name
 								if debug {
-									log.Printf("DEBUG: Filled in struct name %s for case %s in container %s", typeInfo.Name, constantName, containerType)
+									debugf("Filled in struct name %s for case %s in container %s", typeInfo.Name, constantName, containerType)
 								}
 								break
 							}
@@ -957,7 +957,7 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 				if _, exists := typeInfo.UnionConfig.Cases[constantName]; !exists {
 					typeInfo.UnionConfig.VoidCases = append(typeInfo.UnionConfig.VoidCases, constantName)
 					if debug {
-						log.Printf("DEBUG: Added void case %s for container %s", constantName, typeInfo.Name)
+						debugf("Added void case %s for container %s", constantName, typeInfo.Name)
 					}
 				}
 			}
@@ -1086,14 +1086,26 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Supported XDR struct tags:\n")
 		fmt.Fprintf(os.Stderr, "  `xdr:\"uint32\"`     - 32-bit unsigned integer\n")
 		fmt.Fprintf(os.Stderr, "  `xdr:\"uint64\"`     - 64-bit unsigned integer\n")
+		fmt.Fprintf(os.Stderr, "  `xdr:\"int32\"`      - 32-bit signed integer\n")
+		fmt.Fprintf(os.Stderr, "  `xdr:\"int64\"`      - 64-bit signed integer\n")
 		fmt.Fprintf(os.Stderr, "  `xdr:\"string\"`     - variable-length string\n")
 		fmt.Fprintf(os.Stderr, "  `xdr:\"bytes\"`      - variable-length byte array\n")
 		fmt.Fprintf(os.Stderr, "  `xdr:\"bool\"`       - boolean (encoded as uint32)\n")
 		fmt.Fprintf(os.Stderr, "  `xdr:\"struct\"`     - nested struct (must implement xdr.Codec)\n")
 		fmt.Fprintf(os.Stderr, "  `xdr:\"array\"`      - variable-length array\n")
 		fmt.Fprintf(os.Stderr, "  `xdr:\"fixed:N\"`    - fixed-size byte array (N bytes)\n")
-		fmt.Fprintf(os.Stderr, "  `xdr:\"alias\"`       - type alias with automatic type inference (Go type must be: string, []byte, [N]byte, uint32, uint64, int32, int64, bool)\n")
+		fmt.Fprintf(os.Stderr, "  `xdr:\"alias\"`       - type alias with automatic type inference\n")
+		fmt.Fprintf(os.Stderr, "  `xdr:\"key\"`         - discriminated union discriminant field\n")
+		fmt.Fprintf(os.Stderr, "  `xdr:\"union\"`       - discriminated union payload field\n")
+		fmt.Fprintf(os.Stderr, "  `xdr:\"union,default=nil\"` - discriminated union payload with void default\n")
 		fmt.Fprintf(os.Stderr, "  `xdr:\"-\"`          - exclude field from encoding/decoding\n\n")
+		fmt.Fprintf(os.Stderr, "Discriminated Unions:\n")
+		fmt.Fprintf(os.Stderr, "  Use //xdr:union=<container>,case=<constant> comments on payload structs\n")
+		fmt.Fprintf(os.Stderr, "  Void cases are automatically inferred from unmapped constants\n")
+		fmt.Fprintf(os.Stderr, "  Example: //xdr:union=NetworkMessage,case=MessageTypeText\n\n")
+		fmt.Fprintf(os.Stderr, "Type Aliases:\n")
+		fmt.Fprintf(os.Stderr, "  Supported Go types: string, []byte, [N]byte, uint32, uint64, int32, int64, bool\n")
+		fmt.Fprintf(os.Stderr, "  Example: type UserID string `xdr:\"alias\"`\n\n")
 		fmt.Fprintf(os.Stderr, "Output:\n")
 		fmt.Fprintf(os.Stderr, "  Creates <input>_xdr.go with generated Encode/Decode methods\n")
 		fmt.Fprintf(os.Stderr, "  Includes compile-time assertions that types implement xdr.Codec\n\n")
@@ -1150,7 +1162,7 @@ func main() {
 		log.Fatal("Error parsing package:", err)
 	}
 
-	packageName := file.Name.Name
+	packageName := file.Name.Name // Use the package name from the source file exactly, do not modify
 
 	// Collect constants for union validation
 	constants := collectConstants(file)
@@ -1164,7 +1176,7 @@ func main() {
 	validationErrors := validateUnionConfiguration(types, constants, typeDefs, file)
 	if len(validationErrors) > 0 {
 		for _, err := range validationErrors {
-			log.Printf("Validation error: %s: %s", err.Location, err.Message)
+			logf("Validation error: %s: %s", err.Location, err.Message)
 		}
 		log.Fatal("Union configuration validation failed")
 	}
@@ -1189,9 +1201,9 @@ func main() {
 	}
 
 	// For now, just print debug info and exit
-	log.Printf("DEBUG: Parsed %d types", len(types))
+	debugf("Parsed %d types", len(types))
 	for _, typeInfo := range types {
-		log.Printf("DEBUG: Type %s: IsDiscriminatedUnion=%v, UnionConfig=%+v",
+		debugf("Type %s: IsDiscriminatedUnion=%v, UnionConfig=%+v",
 			typeInfo.Name, typeInfo.IsDiscriminatedUnion, typeInfo.UnionConfig)
 	}
 
