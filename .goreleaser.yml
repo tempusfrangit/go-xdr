@@ -73,7 +73,7 @@ release:
   prerelease: auto
   name_template: "{{.ProjectName}}-v{{.Version}}"
   header: |
-    ## XDR-Go {{.Version}}
+    ## GO-XDR {{.Version}}
 
     XDR library for Go with discriminated union support.
 

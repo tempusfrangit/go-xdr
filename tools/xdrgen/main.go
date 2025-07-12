@@ -93,7 +93,7 @@ import (
 )
 
 var silent bool
-var debug bool
+var debug = true
 
 // logf logs a message unless in silent mode
 func logf(format string, args ...any) {
@@ -130,10 +130,10 @@ type TypeInfo struct {
 
 // UnionConfig represents discriminated union configuration
 type UnionConfig struct {
-	DiscriminantType string            // e.g., "OpCode"
-	DefaultCase      string            // struct name for default case (if any)
-	Cases            map[string]string // discriminant value -> struct name
-	VoidCases        []string          // discriminant values that are void
+	ContainerType string            // e.g., "OperationResult"
+	DefaultCase   string            // struct name for default case (if any)
+	Cases         map[string]string // constant name -> struct name
+	VoidCases     []string          // constant names that are void
 }
 
 // ValidationError represents a validation error
@@ -277,12 +277,12 @@ func parseUnionComment(comment string) (*UnionConfig, error) {
 		VoidCases: []string{},
 	}
 
-	// Parse discriminant type
-	discriminantPart := strings.TrimSpace(parts[0])
-	if discriminantPart == "" {
-		return nil, fmt.Errorf("missing discriminant type in union comment: %s", comment)
+	// Parse container type
+	containerPart := strings.TrimSpace(parts[0])
+	if containerPart == "" {
+		return nil, fmt.Errorf("missing container type in union comment: %s", comment)
 	}
-	config.DiscriminantType = discriminantPart
+	config.ContainerType = containerPart
 
 	// Parse cases
 	for i := 1; i < len(parts); i++ {
@@ -292,15 +292,13 @@ func parseUnionComment(comment string) (*UnionConfig, error) {
 		}
 
 		if strings.HasPrefix(part, "case=") {
-			// Parse case mapping
-			caseSpec := strings.TrimPrefix(part, "case=")
-			caseParts := strings.Split(caseSpec, "=")
-			if len(caseParts) != 2 {
-				return nil, fmt.Errorf("invalid case format in union comment: %s", comment)
+			// Parse case - just the constant name, struct name is implicit
+			constantName := strings.TrimSpace(strings.TrimPrefix(part, "case="))
+			if constantName == "" {
+				return nil, fmt.Errorf("empty case name in union comment: %s", comment)
 			}
-			constantValue := strings.TrimSpace(caseParts[0])
-			structName := strings.TrimSpace(caseParts[1])
-			config.Cases[constantValue] = structName
+			// The struct name will be filled in when we associate the comment with the struct
+			config.Cases[constantName] = "" // Will be filled in later
 		} else {
 			return nil, fmt.Errorf("unknown union comment part: %s", comment)
 		}
@@ -310,7 +308,7 @@ func parseUnionComment(comment string) (*UnionConfig, error) {
 }
 
 // validateUnionConfiguration validates discriminated union configuration
-func validateUnionConfiguration(types []TypeInfo, constants map[string]string, typeDefs map[string]ast.Node) []ValidationError {
+func validateUnionConfiguration(types []TypeInfo, constants map[string]string, typeDefs map[string]ast.Node, file *ast.File) []ValidationError {
 	var errors []ValidationError
 
 	// Helper to resolve type aliases recursively
@@ -334,13 +332,13 @@ func validateUnionConfiguration(types []TypeInfo, constants map[string]string, t
 		}
 	}
 
-	// Collect all union configurations
+	// Collect all union configurations by container type
 	unionConfigs := make(map[string]*UnionConfig)
 	defaultCount := 0
 
 	for _, typeInfo := range types {
 		if typeInfo.UnionConfig != nil {
-			unionConfigs[typeInfo.UnionConfig.DiscriminantType] = typeInfo.UnionConfig
+			unionConfigs[typeInfo.UnionConfig.ContainerType] = typeInfo.UnionConfig
 
 			// Check for default case
 			if typeInfo.UnionConfig.DefaultCase != "" {
@@ -358,58 +356,123 @@ func validateUnionConfiguration(types []TypeInfo, constants map[string]string, t
 	}
 
 	// Validate each union configuration
-	for discriminantType, config := range unionConfigs {
-		// Validate that discriminant type exists as a constant type
-		if _, exists := constants[discriminantType]; !exists {
+	for containerType, config := range unionConfigs {
+		// Find the container struct to get its key field
+		var containerStruct TypeInfo
+		found := false
+		for _, typeInfo := range types {
+			if typeInfo.Name == containerType {
+				containerStruct = typeInfo
+				found = true
+				break
+			}
+		}
+		if !found {
 			errors = append(errors, ValidationError{
-				Location: fmt.Sprintf("union=%s", discriminantType),
-				Message:  fmt.Sprintf("discriminant type %s not found in constants", discriminantType),
+				Location: fmt.Sprintf("union=%s", containerType),
+				Message:  fmt.Sprintf("container type %s not found", containerType),
 			})
+			continue
+		}
+
+		// Find the key field to get the discriminant type
+		var keyField FieldInfo
+		for _, field := range containerStruct.Fields {
+			if field.IsKey {
+				keyField = field
+				break
+			}
+		}
+		if keyField.Name == "" {
+			errors = append(errors, ValidationError{
+				Location: fmt.Sprintf("union=%s", containerType),
+				Message:  fmt.Sprintf("container type %s must have a field with xdr:\"key\" tag", containerType),
+			})
+			continue
+		}
+
+		// Validate that the key field type is a uint32 alias
+		keyFieldNode, exists := typeDefs[keyField.Type]
+		if !exists {
+			errors = append(errors, ValidationError{
+				Location: fmt.Sprintf("union=%s,key=%s", containerType, keyField.Name),
+				Message:  fmt.Sprintf("key field type %s must be a Go type, not found", keyField.Type),
+			})
+			continue
+		}
+
+		// Check that the key field type is a uint32 alias
+		if ident, ok := keyFieldNode.(*ast.Ident); ok {
+			// This is a type alias, check if it's uint32
+			if ident.Name != "uint32" {
+				errors = append(errors, ValidationError{
+					Location: fmt.Sprintf("union=%s,key=%s", containerType, keyField.Name),
+					Message:  fmt.Sprintf("key field type %s must be a uint32 alias, got %s", keyField.Type, ident.Name),
+				})
+				continue
+			}
+		} else {
+			errors = append(errors, ValidationError{
+				Location: fmt.Sprintf("union=%s,key=%s", containerType, keyField.Name),
+				Message:  fmt.Sprintf("key field type %s must be a uint32 alias", keyField.Type),
+			})
+			continue
+		}
+
+		// Collect constants of this discriminant type
+		typedConstants := collectTypedConstants(file, keyField.Type)
+		if len(typedConstants) == 0 {
+			errors = append(errors, ValidationError{
+				Location: fmt.Sprintf("union=%s,key=%s", containerType, keyField.Name),
+				Message:  fmt.Sprintf("no constants found for discriminant type %s", keyField.Type),
+			})
+			continue
 		}
 
 		// Validate that each case maps to a valid constant and struct
-		for constantValue, structName := range config.Cases {
-			fullConstantName := discriminantType + "." + constantValue
-			if _, exists := constants[fullConstantName]; !exists {
+		for constantName, structName := range config.Cases {
+			// Check if the constant exists for this discriminant type
+			if _, exists := typedConstants[constantName]; !exists {
 				errors = append(errors, ValidationError{
-					Location: fmt.Sprintf("union=%s,case=%s", discriminantType, constantValue),
-					Message:  fmt.Sprintf("constant %s not found", fullConstantName),
+					Location: fmt.Sprintf("union=%s,case=%s", containerType, constantName),
+					Message:  fmt.Sprintf("constant %s not found for discriminant type %s", constantName, keyField.Type),
 				})
 			}
+
+			// Handle void cases (nil)
+			if structName == "nil" {
+				continue // Void case - no validation needed
+			}
+
 			// Validate struct or alias-to-struct
 			resolved, kind := resolveToStruct(structName)
-			if kind == "notype" {
+			switch kind {
+			case "notype":
 				errors = append(errors, ValidationError{
-					Location: fmt.Sprintf("union=%s,case=%s", discriminantType, constantValue),
+					Location: fmt.Sprintf("union=%s,case=%s", containerType, constantName),
 					Message:  fmt.Sprintf("union case payload type %s not found", structName),
 				})
-			} else if kind != "struct" {
-				errors = append(errors, ValidationError{
-					Location: fmt.Sprintf("union=%s,case=%s", discriminantType, constantValue),
-					Message:  fmt.Sprintf("union case payload type %s must be a struct or alias to struct, got %s", structName, kind),
-				})
-			} else {
+			case "struct":
 				// Check all fields are tagged
 				for _, field := range resolved.Fields.List {
 					if field.Tag == nil {
 						errors = append(errors, ValidationError{
-							Location: fmt.Sprintf("union=%s,case=%s", discriminantType, constantValue),
+							Location: fmt.Sprintf("union=%s,case=%s", containerType, constantName),
 							Message:  fmt.Sprintf("field %s in struct %s is missing xdr tag", field.Names[0].Name, structName),
 						})
 					}
 				}
+			default:
+				errors = append(errors, ValidationError{
+					Location: fmt.Sprintf("union=%s,case=%s", containerType, constantName),
+					Message:  fmt.Sprintf("union case payload type %s must be a struct or alias to struct, got %s", structName, kind),
+				})
 			}
 		}
 
 		// Find void cases (constants without mappings)
-		for constantName := range constants {
-			if strings.HasPrefix(constantName, discriminantType+".") {
-				constantShortName := strings.TrimPrefix(constantName, discriminantType+".")
-				if _, hasMapping := config.Cases[constantShortName]; !hasMapping {
-					config.VoidCases = append(config.VoidCases, constantShortName)
-				}
-			}
-		}
+		// For now, we'll skip this as it requires more complex logic to determine
+		// which constants belong to which discriminant type
 	}
 
 	// In validateUnionConfiguration, add validation for default types
@@ -426,17 +489,13 @@ func validateUnionConfiguration(types []TypeInfo, constants map[string]string, t
 			if unionField.DefaultType != "" && unionField.DefaultType != "nil" {
 				// Validate that the default type exists
 				resolved, kind := resolveToStruct(unionField.DefaultType)
-				if kind == "notype" {
+				switch kind {
+				case "notype":
 					errors = append(errors, ValidationError{
 						Location: fmt.Sprintf("union field %s", unionField.Name),
 						Message:  fmt.Sprintf("default type %s not found", unionField.DefaultType),
 					})
-				} else if kind != "struct" {
-					errors = append(errors, ValidationError{
-						Location: fmt.Sprintf("union field %s", unionField.Name),
-						Message:  fmt.Sprintf("default type %s must be a struct or alias to struct, got %s", unionField.DefaultType, kind),
-					})
-				} else {
+				case "struct":
 					// Check all fields are tagged
 					for _, field := range resolved.Fields.List {
 						if field.Tag == nil {
@@ -446,6 +505,11 @@ func validateUnionConfiguration(types []TypeInfo, constants map[string]string, t
 							})
 						}
 					}
+				default:
+					errors = append(errors, ValidationError{
+						Location: fmt.Sprintf("union field %s", unionField.Name),
+						Message:  fmt.Sprintf("default type %s must be a struct or alias to struct, got %s", unionField.DefaultType, kind),
+					})
 				}
 			}
 		}
@@ -466,6 +530,35 @@ func collectConstants(file *ast.File) map[string]string {
 						if i < len(valueSpec.Values) {
 							if basicLit, ok := valueSpec.Values[i].(*ast.BasicLit); ok {
 								constants[name.Name] = basicLit.Value
+							}
+						}
+					}
+				}
+			}
+		}
+		return true
+	})
+
+	return constants
+}
+
+// collectTypedConstants collects constants that are of a specific type
+func collectTypedConstants(file *ast.File, typeName string) map[string]string {
+	constants := make(map[string]string)
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		if decl, ok := n.(*ast.GenDecl); ok && decl.Tok == token.CONST {
+			for _, spec := range decl.Specs {
+				if valueSpec, ok := spec.(*ast.ValueSpec); ok {
+					// Check if this constant group has the target type
+					if valueSpec.Type != nil {
+						if ident, ok := valueSpec.Type.(*ast.Ident); ok && ident.Name == typeName {
+							for i, name := range valueSpec.Names {
+								if i < len(valueSpec.Values) {
+									if basicLit, ok := valueSpec.Values[i].(*ast.BasicLit); ok {
+										constants[name.Name] = basicLit.Value
+									}
+								}
 							}
 						}
 					}
@@ -681,7 +774,8 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 			}
 			if unionConfig != nil {
 				debugf("Found union comment: %+v", unionConfig)
-				unionComments[unionConfig.DiscriminantType] = unionConfig
+				// Store by container type, but we'll fill in the struct names later
+				unionComments[unionConfig.ContainerType] = unionConfig
 			}
 		}
 	}
@@ -783,9 +877,10 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 						// Mark struct as discriminated union if it contains key field
 						if isKey {
 							typeInfo.IsDiscriminatedUnion = true
-							// Key fields must be uint32 type
-							if fieldInfo.Type != "uint32" {
-								log.Fatalf("Key field %s.%s must be uint32 type, got %s", typeInfo.Name, fieldInfo.Name, fieldInfo.Type)
+							// Key fields must be uint32 type or an alias of uint32
+							underlyingType, ok := typeAliases[fieldInfo.Type]
+							if fieldInfo.Type != "uint32" && (!ok || underlyingType != "uint32") {
+								log.Fatalf("Key field %s.%s must be uint32 or an alias of uint32, got %s", typeInfo.Name, fieldInfo.Name, fieldInfo.Type)
 							}
 							// Key fields should be treated as uint32 for encoding/decoding
 							fieldInfo.XDRType = "uint32"
@@ -807,18 +902,26 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 
 				// Associate union comments with this struct
 				if typeInfo.IsDiscriminatedUnion {
-					// Find the key field to determine the discriminant type
-					var keyField FieldInfo
-					for _, field := range typeInfo.Fields {
-						if field.IsKey {
-							keyField = field
-							break
+					// Container struct - look for union config by container type name
+					if unionConfig, exists := unionComments[typeInfo.Name]; exists {
+						typeInfo.UnionConfig = unionConfig
+						if debug {
+							log.Printf("DEBUG: Associated union config with container struct %s", typeInfo.Name)
 						}
 					}
-					if keyField.Name != "" {
-						discriminantType := keyField.Name
-						if unionConfig, exists := unionComments[discriminantType]; exists {
-							typeInfo.UnionConfig = unionConfig
+				} else {
+					// Check if this struct has a union comment (payload struct)
+					// The union comment should be on the payload struct and reference the container type
+					for containerType, unionConfig := range unionComments {
+						// Fill in the struct name for any empty case mappings
+						for constantName, structName := range unionConfig.Cases {
+							if structName == "" {
+								unionConfig.Cases[constantName] = typeInfo.Name
+								if debug {
+									log.Printf("DEBUG: Filled in struct name %s for case %s in container %s", typeInfo.Name, constantName, containerType)
+								}
+								break
+							}
 						}
 					}
 				}
@@ -831,63 +934,68 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 		return true
 	})
 
-	// In parseFile, after parsing all structs, collect union configurations
-	// and associate them with the main union struct
-
-	// Collect all union configurations from payload structs
-	unionConfigs := make(map[string]*UnionConfig)
-
-	// First pass: collect union configurations from payload structs
+	// Compute void cases for each container struct
 	for _, typeInfo := range types {
-		if !typeInfo.IsDiscriminatedUnion {
-			// Look for union comments in payload structs
-			if typeInfo.UnionConfig != nil {
-				discriminantType := typeInfo.UnionConfig.DiscriminantType
-				if unionConfigs[discriminantType] == nil {
-					unionConfigs[discriminantType] = &UnionConfig{
-						DiscriminantType: discriminantType,
-						Cases:            make(map[string]string),
-						VoidCases:        []string{},
-					}
+		if typeInfo.IsDiscriminatedUnion && typeInfo.UnionConfig != nil {
+			// Find the key field to get the discriminant type
+			var keyField FieldInfo
+			for _, field := range typeInfo.Fields {
+				if field.IsKey {
+					keyField = field
+					break
 				}
-				// Merge cases from this payload struct
-				for constantValue, structName := range typeInfo.UnionConfig.Cases {
-					unionConfigs[discriminantType].Cases[constantValue] = structName
+			}
+			if keyField.Name == "" {
+				log.Fatalf("Container struct %s must have a field with xdr:\"key\" tag", typeInfo.Name)
+			}
+
+			// Collect all constants of this discriminant type
+			typedConstants := collectTypedConstants(file, keyField.Type)
+
+			// Compute void cases: all constants not mapped to payload structs
+			for constantName := range typedConstants {
+				if _, exists := typeInfo.UnionConfig.Cases[constantName]; !exists {
+					typeInfo.UnionConfig.VoidCases = append(typeInfo.UnionConfig.VoidCases, constantName)
+					if debug {
+						log.Printf("DEBUG: Added void case %s for container %s", constantName, typeInfo.Name)
+					}
 				}
 			}
 		}
 	}
 
-	// Second pass: associate union configurations with main union structs
-	for i := range types {
-		if types[i].IsDiscriminatedUnion {
-			// Find the key field to determine the discriminant type
-			var keyField FieldInfo
-			var unionField FieldInfo
-			for _, field := range types[i].Fields {
-				if field.IsKey {
-					keyField = field
-				}
-				if field.IsUnion {
-					unionField = field
-				}
-			}
-			if keyField.Name != "" && unionField.Name != "" {
-				// Try to find a union config for this discriminant type
-				discriminantType := keyField.Type
-				if config, exists := unionConfigs[discriminantType]; exists {
-					types[i].UnionConfig = config
-					// Set the default case from the union field tag
-					if unionField.DefaultType != "" {
-						if unionField.DefaultType == "nil" {
-							// Void default - don't set DefaultCase
-						} else {
-							// Payload default
-							types[i].UnionConfig.DefaultCase = unionField.DefaultType
-						}
+	// Validate that all container structs have union configs
+	for _, typeInfo := range types {
+		if typeInfo.IsDiscriminatedUnion && typeInfo.UnionConfig == nil {
+			log.Fatalf("Container struct %s must have a union comment", typeInfo.Name)
+		}
+	}
+
+	// Validate that all payload structs are used by some container
+	payloadStructs := make(map[string]bool)
+	for _, typeInfo := range types {
+		if !typeInfo.IsDiscriminatedUnion && typeInfo.UnionConfig != nil {
+			payloadStructs[typeInfo.Name] = true
+		}
+	}
+
+	for payloadName := range payloadStructs {
+		found := false
+		for _, typeInfo := range types {
+			if typeInfo.IsDiscriminatedUnion && typeInfo.UnionConfig != nil {
+				for _, structName := range typeInfo.UnionConfig.Cases {
+					if structName == payloadName {
+						found = true
+						break
 					}
 				}
+				if found {
+					break
+				}
 			}
+		}
+		if !found {
+			log.Fatalf("Orphaned union comment: struct %s has a union comment but is not used as a payload in any union", payloadName)
 		}
 	}
 
@@ -937,6 +1045,24 @@ func inferUnderlyingType(goType string) (string, error) {
 		}
 		return "", fmt.Errorf("unsupported type for alias inference: %s (supported: string, []byte, [N]byte, uint32, uint64, int32, int64, bool)", goType)
 	}
+}
+
+// Helper: detect loops in union payload chains
+func detectUnionLoop(start string, unionConfigs map[string]*UnionConfig, visited map[string]bool) bool {
+	if visited[start] {
+		return true
+	}
+	visited[start] = true
+	for _, payload := range unionConfigs[start].Cases {
+		if unionConfigs[payload] == nil {
+			continue // not a union container, skip
+		}
+		if detectUnionLoop(payload, unionConfigs, visited) {
+			return true
+		}
+	}
+	visited[start] = false
+	return false
 }
 
 func main() {
@@ -1002,7 +1128,7 @@ func main() {
 		outputFile = strings.TrimSuffix(inputFile, ".go") + "_xdr.go"
 	}
 
-	types, _, _, err := parseFile(inputFile)
+	types, _, typeDefs, err := parseFile(inputFile)
 	if err != nil {
 		log.Fatal("Error parsing file:", err)
 	}
@@ -1034,6 +1160,15 @@ func main() {
 		log.Fatal("Validation error:", err)
 	}
 
+	// Validate union configurations
+	validationErrors := validateUnionConfiguration(types, constants, typeDefs, file)
+	if len(validationErrors) > 0 {
+		for _, err := range validationErrors {
+			log.Printf("Validation error: %s: %s", err.Location, err.Message)
+		}
+		log.Fatal("Union configuration validation failed")
+	}
+
 	// Collect external imports
 	var externalImports []string
 	for _, typeInfo := range types {
@@ -1051,6 +1186,13 @@ func main() {
 	var structTypeNames []string
 	for _, typeInfo := range types {
 		structTypeNames = append(structTypeNames, typeInfo.Name)
+	}
+
+	// For now, just print debug info and exit
+	log.Printf("DEBUG: Parsed %d types", len(types))
+	for _, typeInfo := range types {
+		log.Printf("DEBUG: Type %s: IsDiscriminatedUnion=%v, UnionConfig=%+v",
+			typeInfo.Name, typeInfo.IsDiscriminatedUnion, typeInfo.UnionConfig)
 	}
 
 	// Create code generator

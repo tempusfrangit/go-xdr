@@ -136,7 +136,7 @@ type OperationResult struct {
 
 //xdr:union=uint32,case=0=OpSuccessResult
 // OpSuccessResult is the payload for StatusSuccess
-// (add struct if you want a non-void payload)
+// (add struct, any constants that do not have a matching struct are VOID values)
 ```
 
 - Use `xdr:"key"` for the discriminant field

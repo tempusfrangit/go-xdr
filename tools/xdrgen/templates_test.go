@@ -576,9 +576,9 @@ func TestGenerateUnionCode(t *testing.T) {
 		},
 		IsDiscriminatedUnion: true,
 		UnionConfig: &UnionConfig{
-			DiscriminantType: "OpCode",
-			Cases:            map[string]string{"SUCCESS": "SuccessResult"},
-			VoidCases:        []string{"ERROR"},
+			ContainerType: "OpCode",
+			Cases:         map[string]string{"SUCCESS": "SuccessResult"},
+			VoidCases:     []string{"ERROR"},
 		},
 	}
 
@@ -618,8 +618,8 @@ func TestGenerateUnionEncodeDecodeCodeErrors(t *testing.T) {
 			},
 			IsDiscriminatedUnion: true,
 			UnionConfig: &UnionConfig{
-				DiscriminantType: "OpCode",
-				Cases:            map[string]string{"SUCCESS": "SuccessResult"},
+				ContainerType: "OpCode",
+				Cases:         map[string]string{"SUCCESS": "SuccessResult"},
 			},
 		}
 		errMsg := "no key field found for union field Data"

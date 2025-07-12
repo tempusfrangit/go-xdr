@@ -42,6 +42,9 @@ type FieldData struct {
 	AliasType      string
 	EncodeMethod   string
 	DecodeMethod   string
+	// Type conversion fields
+	TypeConversion    string
+	TypeConversionEnd string
 }
 
 // UnionCaseData represents data for union case templates
@@ -133,7 +136,7 @@ import (
 		"assertion": `var _ xdr.Codec = (*{{.TypeName}})(nil)
 `,
 
-		"field_encode_basic": `if err := enc.{{.Method}}(v.{{.FieldName}}); err != nil {
+		"field_encode_basic": `if err := enc.{{.Method}}({{.TypeConversion}}v.{{.FieldName}}{{.TypeConversionEnd}}); err != nil {
 	return fmt.Errorf("failed to encode {{.FieldName}}: %w", err)
 }`,
 
@@ -141,7 +144,7 @@ import (
 if err != nil {
 	return fmt.Errorf("failed to decode {{.FieldName}}: %w", err)
 }
-v.{{.FieldName}} = {{.VarName}}`,
+v.{{.FieldName}} = {{.TypeConversion}}{{.VarName}}{{.TypeConversionEnd}}`,
 
 		"field_encode_struct": `if err := v.{{.FieldName}}.Encode(enc); err != nil {
 	return fmt.Errorf("failed to encode {{.FieldName}}: %w", err)
@@ -279,21 +282,22 @@ func (cg *CodeGenerator) GenerateEncodeMethod(typeInfo TypeInfo) (string, error)
 		}
 
 		// Generate field-specific encode code
-		if field.IsUnion {
+		switch {
+		case field.IsUnion:
 			// Union field
 			encodeCode, err := cg.generateUnionEncodeCode(field, typeInfo)
 			if err != nil {
 				return "", err
 			}
 			fieldData.EncodeCode = encodeCode
-		} else if field.IsKey {
+		case field.IsKey:
 			// Key field
 			encodeCode, err := cg.generateBasicEncodeCode(field)
 			if err != nil {
 				return "", err
 			}
 			fieldData.EncodeCode = encodeCode
-		} else {
+		default:
 			// Regular field
 			encodeCode, err := cg.generateBasicEncodeCode(field)
 			if err != nil {
@@ -323,21 +327,22 @@ func (cg *CodeGenerator) GenerateDecodeMethod(typeInfo TypeInfo) (string, error)
 		}
 
 		// Generate field-specific decode code
-		if field.IsUnion {
+		switch {
+		case field.IsUnion:
 			// Union field
 			decodeCode, err := cg.generateUnionDecodeCode(field, typeInfo)
 			if err != nil {
 				return "", err
 			}
 			fieldData.DecodeCode = decodeCode
-		} else if field.IsKey {
+		case field.IsKey:
 			// Key field
 			decodeCode, err := cg.generateBasicDecodeCode(field)
 			if err != nil {
 				return "", err
 			}
 			fieldData.DecodeCode = decodeCode
-		} else {
+		default:
 			// Regular field
 			decodeCode, err := cg.generateBasicDecodeCode(field)
 			if err != nil {
@@ -458,9 +463,20 @@ func (cg *CodeGenerator) generateBasicEncodeCode(field FieldInfo) (string, error
 		return "", fmt.Errorf("unsupported XDR type for encoding: %s", field.XDRType)
 	}
 
+	// Handle type conversions for key fields (alias types)
+	typeConversion := ""
+	typeConversionEnd := ""
+	if field.IsKey && field.Type != "uint32" {
+		// Key field is an alias type, need to convert to uint32
+		typeConversion = "uint32("
+		typeConversionEnd = ")"
+	}
+
 	data := FieldData{
-		FieldName: field.Name,
-		Method:    method,
+		FieldName:         field.Name,
+		Method:            method,
+		TypeConversion:    typeConversion,
+		TypeConversionEnd: typeConversionEnd,
 	}
 	return cg.tm.ExecuteTemplate("field_encode_basic", data)
 }
@@ -563,11 +579,22 @@ func (cg *CodeGenerator) generateBasicDecodeCode(field FieldInfo) (string, error
 		return "", fmt.Errorf("unsupported XDR type for decoding: %s", field.XDRType)
 	}
 
+	// Handle type conversions for key fields (alias types)
+	typeConversion := ""
+	typeConversionEnd := ""
+	if field.IsKey && field.Type != "uint32" {
+		// Key field is an alias type, need to convert from uint32
+		typeConversion = field.Type + "("
+		typeConversionEnd = ")"
+	}
+
 	data := FieldData{
-		FieldName: field.Name,
-		FieldType: field.Type,
-		Method:    method,
-		VarName:   "temp" + field.Name,
+		FieldName:         field.Name,
+		FieldType:         field.Type,
+		Method:            method,
+		VarName:           "temp" + field.Name,
+		TypeConversion:    typeConversion,
+		TypeConversionEnd: typeConversionEnd,
 	}
 	return cg.tm.ExecuteTemplate("field_decode_basic", data)
 }

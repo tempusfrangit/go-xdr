@@ -340,9 +340,9 @@ func TestParseUnionComment(t *testing.T) {
 			name:    "Valid union comment",
 			comment: "//xdr:union=OpCode,case=OpOpen=OpOpenResult",
 			expected: &UnionConfig{
-				DiscriminantType: "OpCode",
-				Cases:            map[string]string{"OpOpen": "OpOpenResult"},
-				VoidCases:        []string{},
+				ContainerType: "OpCode",
+				Cases:         map[string]string{"OpOpen": "OpOpenResult"},
+				VoidCases:     []string{},
 			},
 			hasError: false,
 		},
@@ -350,9 +350,9 @@ func TestParseUnionComment(t *testing.T) {
 			name:    "Union comment with default",
 			comment: "//xdr:union=OpCode,case=OpOpen=OpOpenResult",
 			expected: &UnionConfig{
-				DiscriminantType: "OpCode",
-				Cases:            map[string]string{"OpOpen": "OpOpenResult"},
-				VoidCases:        []string{},
+				ContainerType: "OpCode",
+				Cases:         map[string]string{"OpOpen": "OpOpenResult"},
+				VoidCases:     []string{},
 			},
 			hasError: false,
 		},
@@ -516,4 +516,335 @@ func createTempFile(t *testing.T, content string) string {
 	}
 
 	return tmpFile.Name()
+}
+
+func TestUnionLoopDetection(t *testing.T) {
+	// Test case: A -> B -> A (loop)
+	unionConfigs := map[string]*UnionConfig{
+		"A": {
+			ContainerType: "A",
+			Cases:         map[string]string{"1": "B"},
+		},
+		"B": {
+			ContainerType: "B",
+			Cases:         map[string]string{"1": "A"},
+		},
+	}
+
+	// Should detect loop
+	visited := make(map[string]bool)
+	if !detectUnionLoop("A", unionConfigs, visited) {
+		t.Error("Loop detection failed: should detect A -> B -> A loop")
+	}
+
+	// Test case: No loop
+	unionConfigsNoLoop := map[string]*UnionConfig{
+		"A": {
+			ContainerType: "A",
+			Cases:         map[string]string{"1": "B"},
+		},
+		"B": {
+			ContainerType: "B",
+			Cases:         map[string]string{"1": "C"},
+		},
+		"C": {
+			ContainerType: "C",
+			Cases:         map[string]string{},
+		},
+	}
+
+	visited = make(map[string]bool)
+	if detectUnionLoop("A", unionConfigsNoLoop, visited) {
+		t.Error("Loop detection failed: should not detect loop in A -> B -> C")
+	}
+}
+
+func TestUnionConfigAggregation(t *testing.T) {
+	// Test that union configs are properly aggregated from payload structs
+	// and associated with container structs
+	src := `package main
+
+type MessageType uint32
+const (
+	MessageTypeText MessageType = 1
+	MessageTypeBinary MessageType = 2
+)
+
+type NetworkMessage struct {
+	Type    MessageType ` + "`xdr:\"key\"`" + `
+	Payload []byte ` + "`xdr:\"union,default=nil\"`" + `
+}
+
+//xdr:union=NetworkMessage,case=MessageTypeText
+type TextPayload struct {
+	Content string ` + "`xdr:\"string\"`" + `
+}
+
+//xdr:union=NetworkMessage,case=MessageTypeBinary
+type BinaryPayload struct {
+	Data []byte ` + "`xdr:\"bytes\"`" + `
+}
+`
+
+	tmpFile := createTempFile(t, src)
+
+	types, _, _, err := parseFile(tmpFile)
+	if err != nil {
+		t.Fatalf("Failed to parse file: %v", err)
+	}
+
+	// Find NetworkMessage (container struct)
+	var networkMessage *TypeInfo
+	for i := range types {
+		if types[i].Name == "NetworkMessage" {
+			networkMessage = &types[i]
+			break
+		}
+	}
+
+	if networkMessage == nil {
+		t.Fatal("NetworkMessage not found in parsed types")
+	}
+
+	if !networkMessage.IsDiscriminatedUnion {
+		t.Error("NetworkMessage should be marked as discriminated union")
+	}
+
+	// Check that union config is properly associated
+	if networkMessage.UnionConfig == nil {
+		t.Error("NetworkMessage should have union config associated")
+	} else if networkMessage.UnionConfig.ContainerType != "NetworkMessage" {
+		t.Errorf("Expected container type NetworkMessage, got %s", networkMessage.UnionConfig.ContainerType)
+	}
+
+	t.Logf("NetworkMessage fields: %+v", networkMessage.Fields)
+}
+
+func TestOrphanedUnionCommentDetection(t *testing.T) {
+	// Test that orphaned union comments are detected
+	src := `package main
+
+type MessageType uint32
+type OtherType uint32
+const (
+	MessageTypeText MessageType = 1
+	OtherTypeValue  OtherType = 1
+)
+
+type NetworkMessage struct {
+	Type    MessageType ` + "`xdr:\"key\"`" + `
+	Payload []byte      ` + "`xdr:\"union,default=nil\"`" + `
+}
+
+//xdr:union=MessageType,case=MessageTypeText=TextPayload
+type TextPayload struct {
+	Content string ` + "`xdr:\"string\"`" + `
+}
+
+// This comment is orphaned - no union uses this struct
+//xdr:union=OtherType,case=OtherTypeValue=OrphanedPayload
+type OrphanedPayload struct {
+	Data []byte ` + "`xdr:\"bytes\"`" + `
+}
+`
+
+	tmpFile := createTempFile(t, src)
+
+	// Orphaned union comment detection is already implemented
+	// This should fail because OrphanedPayload is not used in any union
+	_, _, _, err := parseFile(tmpFile)
+	if err == nil {
+		t.Error("Expected error for orphaned union comment, but got none")
+	}
+}
+
+func TestDiscriminantTypeValidation(t *testing.T) {
+	// Test that discriminant types must be uint32 aliases
+	tests := []struct {
+		name        string
+		src         string
+		shouldError bool
+	}{
+		{
+			name: "Valid uint32 alias",
+			src: `package main
+
+type MessageType uint32
+
+const (
+	MessageTypeText MessageType = 1
+)
+
+//xdr:union=MessageType,case=MessageTypeText=TextPayload
+type TextPayload struct {
+	Content string ` + "`xdr:\"string\"`" + `
+}
+`,
+			shouldError: false,
+		},
+		{
+			name: "Invalid string alias",
+			src: `package main
+
+type MessageType string  // Wrong type - should be uint32
+
+const (
+	MessageTypeText MessageType = "text"
+)
+
+//xdr:union=MessageType,case=MessageTypeText=TextPayload
+type TextPayload struct {
+	Content string ` + "`xdr:\"string\"`" + `
+}
+`,
+			shouldError: true,
+		},
+		{
+			name: "Invalid int64 alias",
+			src: `package main
+
+type MessageType int64  // Wrong type - should be uint32
+
+const (
+	MessageTypeText MessageType = 1
+)
+
+//xdr:union=MessageType,case=MessageTypeText=TextPayload
+type TextPayload struct {
+	Content string ` + "`xdr:\"string\"`" + `
+}
+`,
+			shouldError: true,
+		},
+		{
+			name: "Direct uint32 (valid)",
+			src: `package main
+
+//xdr:union=uint32,case=1=TextPayload
+type TextPayload struct {
+	Content string ` + "`xdr:\"string\"`" + `
+}
+`,
+			shouldError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpFile := createTempFile(t, tt.src)
+			defer os.Remove(tmpFile)
+
+			_, _, _, err := parseFile(tmpFile)
+
+			if tt.shouldError && err == nil {
+				t.Error("Expected error for invalid discriminant type, but got none")
+			} else if !tt.shouldError && err != nil {
+				t.Errorf("Expected no error for valid discriminant type, but got: %v", err)
+			}
+		})
+	}
+}
+
+func TestTypedConstantsValidation(t *testing.T) {
+	// Test that constants must be of the discriminant type
+	tests := []struct {
+		name        string
+		src         string
+		shouldError bool
+	}{
+		{
+			name: "Valid typed constants",
+			src: `package main
+
+type MessageType uint32
+
+const (
+	MessageTypeText MessageType = 1
+)
+
+//xdr:union=MessageType,case=MessageTypeText=TextPayload
+type TextPayload struct {
+	Content string ` + "`xdr:\"string\"`" + `
+}
+`,
+			shouldError: false,
+		},
+		{
+			name: "Invalid untyped constants",
+			src: `package main
+
+type MessageType uint32
+
+const (
+	MessageTypeText = 1  // Wrong - should be MessageType = 1
+)
+
+//xdr:union=MessageType,case=MessageTypeText=TextPayload
+type TextPayload struct {
+	Content string ` + "`xdr:\"string\"`" + `
+}
+`,
+			shouldError: true,
+		},
+		{
+			name: "Missing constants",
+			src: `package main
+
+type MessageType uint32
+
+// No constants defined
+
+//xdr:union=MessageType,case=MessageTypeText=TextPayload
+type TextPayload struct {
+	Content string ` + "`xdr:\"string\"`" + `
+}
+`,
+			shouldError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpFile := createTempFile(t, tt.src)
+			defer os.Remove(tmpFile)
+
+			_, _, _, err := parseFile(tmpFile)
+
+			if tt.shouldError && err == nil {
+				t.Error("Expected error for invalid typed constants, but got none")
+			} else if !tt.shouldError && err != nil {
+				t.Errorf("Expected no error for valid typed constants, but got: %v", err)
+			}
+		})
+	}
+}
+
+func TestUnionCommentPlacement(t *testing.T) {
+	// Test that union comments are only allowed above payload structs
+	src := `package main
+
+type MessageType uint32
+const (
+	MessageTypeText MessageType = 1
+)
+
+//xdr:union=MessageType,case=MessageTypeText=TextPayload
+type NetworkMessage struct {  // Wrong - comment above container, not payload
+	Type    uint32 ` + "`xdr:\"key\"`" + `
+	Payload []byte ` + "`xdr:\"union,default=nil\"`" + `
+}
+
+type TextPayload struct {
+	Content string ` + "`xdr:\"string\"`" + `
+}
+`
+
+	tmpFile := createTempFile(t, src)
+
+	// Union comment placement validation is already implemented
+	// This should fail because the comment is above a container struct, not a payload
+	_, _, _, err := parseFile(tmpFile)
+	if err == nil {
+		t.Error("Expected error for misplaced union comment, but got none")
+	}
 }
