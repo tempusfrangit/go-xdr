@@ -1,6 +1,6 @@
 package main
 
-//go:generate xdrgen
+//go:generate xdrgen $GOFILE
 
 // Payload struct for text messages
 type TextMessage struct {

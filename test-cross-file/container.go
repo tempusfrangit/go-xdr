@@ -1,6 +1,6 @@
 package main
 
-//go:generate xdrgen
+//go:generate xdrgen $GOFILE
 
 type MessageType uint32
 
@@ -12,6 +12,6 @@ const (
 
 // Container struct with key field
 type NetworkMessage struct {
-	Type MessageType `xdr:"key"`
-	Data []byte      `xdr:"union"`
+	Type MessageType `xdr:"key"`   // Operation code (discriminant)
+	Data []byte      `xdr:"union"` // XDR-encoded operation-specific arguments
 }

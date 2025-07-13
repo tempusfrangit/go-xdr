@@ -56,11 +56,13 @@ bin:
 
 # Format code with gci (comprehensive formatting)
 format:
-	@go run github.com/daixiang0/gci@latest write --skip-generated -s standard -s default ./...
+	@go run github.com/daixiang0/gci@latest write --skip-generated -s standard -s default .
+	@go run github.com/daixiang0/gci@latest write --skip-generated -s standard -s default ./tools/xdrgen
 
 # Check code formatting with gci
 check-format:
-	@go run github.com/daixiang0/gci@latest diff --skip-generated -s standard -s default ./...
+	@go run github.com/daixiang0/gci@latest diff --skip-generated -s standard -s default .
+	@go run github.com/daixiang0/gci@latest diff --skip-generated -s standard -s default ./tools/xdrgen
 
 # Vet code
 vet:

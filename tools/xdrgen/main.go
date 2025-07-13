@@ -991,41 +991,6 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 		}
 	}
 
-	// Validate that all container structs have union configs
-	for _, typeInfo := range types {
-		if typeInfo.IsDiscriminatedUnion && typeInfo.UnionConfig == nil {
-			log.Fatalf("Container struct %s has key/union fields but no payload structs found. Add union comments (//xdr:union=%s,case=<constant>) to payload structs", typeInfo.Name, typeInfo.Name)
-		}
-	}
-
-	// Validate that all payload structs are used by some container
-	payloadStructs := make(map[string]bool)
-	for _, typeInfo := range types {
-		if !typeInfo.IsDiscriminatedUnion && typeInfo.UnionConfig != nil {
-			payloadStructs[typeInfo.Name] = true
-		}
-	}
-
-	for payloadName := range payloadStructs {
-		found := false
-		for _, typeInfo := range types {
-			if typeInfo.IsDiscriminatedUnion && typeInfo.UnionConfig != nil {
-				for _, structName := range typeInfo.UnionConfig.Cases {
-					if structName == payloadName {
-						found = true
-						break
-					}
-				}
-				if found {
-					break
-				}
-			}
-		}
-		if !found {
-			log.Fatalf("Orphaned union comment: struct %s has a union comment but is not used as a payload in any union", payloadName)
-		}
-	}
-
 	return types, misplacedUnionComments, typeDefs, nil
 }
 
@@ -1303,7 +1268,8 @@ func processFileWithPackageContext(inputFile, packageDir string) {
 	allUnionComments := make(map[string]*UnionConfig)
 	allTypeDefs := make(map[string]ast.Node)
 	allConstants := make(map[string]string)
-	allStructTypes := make(map[string]bool) // Track all struct types across package
+	allStructTypes := make(map[string]bool)           // Track all struct types across package
+	allContainerStructs := make(map[string]*TypeInfo) // Track discriminated union containers across package
 
 	for _, file := range files {
 		// Parse each file to get union comments and type definitions
@@ -1313,20 +1279,58 @@ func processFileWithPackageContext(inputFile, packageDir string) {
 			log.Fatal("Error parsing file:", err)
 		}
 
-		// Collect union comments from this file
-		for _, commentGroup := range astFile.Comments {
-			for _, comment := range commentGroup.List {
-				unionConfig, err := parseUnionComment(comment.Text)
-				if err != nil {
-					log.Fatalf("Error parsing union comment: %v", err)
-				}
-				if unionConfig != nil {
-					debugf("Found cross-file union comment: %+v", unionConfig)
-					// Store by container type
-					allUnionComments[unionConfig.ContainerType] = unionConfig
+		// Collect union comments from this file and associate them with following struct definitions
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.GenDecl:
+				if node.Tok == token.TYPE {
+					// Look for union comments preceding type declarations
+					for _, spec := range node.Specs {
+						if typeSpec, ok := spec.(*ast.TypeSpec); ok {
+							if _, ok := typeSpec.Type.(*ast.StructType); ok {
+								// Check if there's a union comment before this struct
+								if node.Doc != nil {
+									for _, comment := range node.Doc.List {
+										unionConfig, err := parseUnionComment(comment.Text)
+										if err != nil {
+											log.Fatalf("Error parsing union comment: %v", err)
+										}
+										if unionConfig != nil {
+											debugf("Found cross-file union comment: %+v for struct %s", unionConfig, typeSpec.Name.Name)
+
+											// Fill in the struct name for the case
+											for constantName := range unionConfig.Cases {
+												debugf("Filling case %s with struct name %s", constantName, typeSpec.Name.Name)
+												unionConfig.Cases[constantName] = typeSpec.Name.Name
+											}
+
+											// Merge with existing config for this container type
+											if existingConfig, exists := allUnionComments[unionConfig.ContainerType]; exists {
+												// Merge cases
+												for constantName, structName := range unionConfig.Cases {
+													existingConfig.Cases[constantName] = structName
+												}
+												// Merge void cases
+												existingConfig.VoidCases = append(existingConfig.VoidCases, unionConfig.VoidCases...)
+												// Handle default case
+												if unionConfig.DefaultCase != "" {
+													existingConfig.DefaultCase = unionConfig.DefaultCase
+												}
+											} else {
+												// Store new config
+												allUnionComments[unionConfig.ContainerType] = unionConfig
+											}
+											debugf("After processing, config for %s: %+v", unionConfig.ContainerType, allUnionComments[unionConfig.ContainerType])
+										}
+									}
+								}
+							}
+						}
+					}
 				}
 			}
-		}
+			return true
+		})
 
 		// Build typeDefs map for this file
 		ast.Inspect(astFile, func(n ast.Node) bool {
@@ -1352,6 +1356,65 @@ func processFileWithPackageContext(inputFile, packageDir string) {
 		for name, value := range fileConstants {
 			allConstants[name] = value
 		}
+
+		// Collect container structs from AST inspection (without full parsing/validation)
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if genDecl, ok := n.(*ast.GenDecl); ok && genDecl.Tok == token.TYPE {
+				for _, spec := range genDecl.Specs {
+					if typeSpec, ok := spec.(*ast.TypeSpec); ok {
+						if structType, ok := typeSpec.Type.(*ast.StructType); ok {
+							// Check if this struct has key/union fields (discriminated union)
+							hasKey := false
+							hasUnion := false
+							for _, field := range structType.Fields.List {
+								if field.Tag != nil {
+									tag := strings.Trim(field.Tag.Value, "`")
+									xdrTag := parseXDRTag(tag)
+									isKey, isUnion, _ := parseKeyUnionTag(xdrTag)
+									if isKey {
+										hasKey = true
+									}
+									if isUnion {
+										hasUnion = true
+									}
+								}
+							}
+							if hasKey && hasUnion {
+								// Create a minimal TypeInfo for the container
+								containerInfo := &TypeInfo{
+									Name:                 typeSpec.Name.Name,
+									IsDiscriminatedUnion: true,
+									UnionConfig:          nil, // Will be set during association
+								}
+								allContainerStructs[typeSpec.Name.Name] = containerInfo
+								debugf("Found container struct %s in file %s", typeSpec.Name.Name, file)
+							}
+						}
+					}
+				}
+			}
+			return true
+		})
+	}
+
+	// Package-level union configuration association
+	// Associate union configurations with container structs across all files
+	debugf("Available union configs: %+v", allUnionComments)
+	debugf("Available container structs: %v", func() []string {
+		var names []string
+		for name := range allContainerStructs {
+			names = append(names, name)
+		}
+		return names
+	}())
+
+	for containerName, unionConfig := range allUnionComments {
+		if containerStruct, exists := allContainerStructs[containerName]; exists {
+			containerStruct.UnionConfig = unionConfig
+			debugf("Associated union config with container struct %s at package level", containerName)
+		} else {
+			log.Fatalf("Cross-package union association error: Container struct %s referenced in union comments but not found in package", containerName)
+		}
 	}
 
 	if debug {
@@ -1362,12 +1425,53 @@ func processFileWithPackageContext(inputFile, packageDir string) {
 		fmt.Printf("processFileWithPackageContext: allTypeDefs keys: %v\n", keys)
 	}
 
+	// Validate the complete package state before generating any code
+	if err := validateCompletePackageState(allContainerStructs, allUnionComments, allConstants, allTypeDefs); err != nil {
+		log.Fatal("Package validation error:", err)
+	}
+
 	// Now process the specific file with complete package context
-	processFileWithPackageUnionContext(inputFile, allUnionComments, allTypeDefs, allConstants, allStructTypes)
+	processFileWithPackageUnionContext(inputFile, allUnionComments, allTypeDefs, allConstants, allStructTypes, allContainerStructs)
+}
+
+// validateCompletePackageState validates the complete package state after all aggregation and mapping
+func validateCompletePackageState(allContainerStructs map[string]*TypeInfo, allUnionComments map[string]*UnionConfig, allConstants map[string]string, allTypeDefs map[string]ast.Node) error {
+	var errors []string
+
+	// Validate that all union comments reference existing containers
+	for containerType := range allUnionComments {
+		if _, exists := allContainerStructs[containerType]; !exists {
+			errors = append(errors, fmt.Sprintf("Union comment references unknown container struct %s", containerType))
+		}
+	}
+
+	// Validate that all containers have union configs
+	for containerName, containerStruct := range allContainerStructs {
+		if containerStruct.UnionConfig == nil {
+			errors = append(errors, fmt.Sprintf("Container struct %s has key/union fields but no payload structs found. Add union comments (//xdr:union=%s,case=<constant>) to payload structs", containerName, containerName))
+		}
+	}
+
+	// Validate that all constants referenced in union cases exist
+	for containerType, unionConfig := range allUnionComments {
+		for constantName := range unionConfig.Cases {
+			if _, exists := allConstants[constantName]; !exists {
+				errors = append(errors, fmt.Sprintf("Union case %s in container %s references unknown constant %s", constantName, containerType, constantName))
+			}
+		}
+	}
+
+	// Report all errors at once
+	if len(errors) > 0 {
+		return fmt.Errorf("Package validation errors:\n%s", strings.Join(errors, "\n"))
+	}
+
+	debugf("Package validation passed: %d containers, %d union configs", len(allContainerStructs), len(allUnionComments))
+	return nil
 }
 
 // processFileWithPackageUnionContext processes a file with complete package-level union configuration context
-func processFileWithPackageUnionContext(inputFile string, allUnionComments map[string]*UnionConfig, allTypeDefs map[string]ast.Node, allConstants map[string]string, allStructTypes map[string]bool) {
+func processFileWithPackageUnionContext(inputFile string, allUnionComments map[string]*UnionConfig, allTypeDefs map[string]ast.Node, allConstants map[string]string, allStructTypes map[string]bool, allContainerStructs map[string]*TypeInfo) {
 	// Generate output file name, handling test files specially
 	var outputFile string
 	if strings.HasSuffix(inputFile, "_test.go") {
@@ -1376,10 +1480,30 @@ func processFileWithPackageUnionContext(inputFile string, allUnionComments map[s
 		outputFile = strings.TrimSuffix(inputFile, ".go") + "_xdr.go"
 	}
 
+	debugf("Processing input file: %s", inputFile)
 	types, _, _, err := parseFile(inputFile)
 	if err != nil {
 		log.Fatal("Error parsing file:", err)
 	}
+
+	debugf("Found %d types in input file", len(types))
+	for i := range types {
+		debugf("Type %s: IsDiscriminatedUnion=%v", types[i].Name, types[i].IsDiscriminatedUnion)
+	}
+
+	// Update container structs with package-level union configurations
+	for i := range types {
+		if types[i].IsDiscriminatedUnion {
+			if packageContainer, exists := allContainerStructs[types[i].Name]; exists {
+				types[i].UnionConfig = packageContainer.UnionConfig
+				debugf("Updated container struct %s with package-level union config", types[i].Name)
+			} else {
+				debugf("No package container found for %s", types[i].Name)
+			}
+		}
+	}
+
+	// Package-level validation is done before individual file processing
 
 	if len(types) == 0 {
 		logf("No types with XDR tags found in %s", inputFile)
@@ -1403,75 +1527,14 @@ func processFileWithPackageUnionContext(inputFile string, allUnionComments map[s
 	// Use package-level constants for union validation
 	constants := allConstants
 
-	// Package-level union configuration aggregation
-	// First, associate union configurations with container structs
-	for _, typeInfo := range types {
-		if typeInfo.IsDiscriminatedUnion {
-			if unionConfig, exists := allUnionComments[typeInfo.Name]; exists {
-				typeInfo.UnionConfig = unionConfig
-				debugf("Associated cross-file union config with container struct %s", typeInfo.Name)
-			}
-		}
-	}
+	// Package-level union configuration aggregation already done
+	// Union configs are now associated with container structs at package level
 
-	// Now aggregate all union configurations across the package
-	// This allows payload structs in any file to be associated with container structs in any other file
-	for containerType, unionConfig := range allUnionComments {
-		debugf("Processing union config for container %s: %+v", containerType, unionConfig)
-
-		// Find the container struct in the current file's types
-		var containerTypeInfo *TypeInfo
-		for i := range types {
-			if types[i].Name == containerType {
-				containerTypeInfo = &types[i]
-				break
-			}
-		}
-
-		// If container is not in this file, we need to create a placeholder for validation
-		if containerTypeInfo == nil {
-			debugf("Container struct %s not found in current file, creating placeholder", containerType)
-			// Create a placeholder TypeInfo for the container
-			placeholder := TypeInfo{
-				Name:                 containerType,
-				IsDiscriminatedUnion: true,
-				UnionConfig:          unionConfig,
-			}
-			types = append(types, placeholder)
-			containerTypeInfo = &types[len(types)-1]
-		}
-
-		// Ensure the container has the union config
-		if containerTypeInfo.UnionConfig == nil {
-			containerTypeInfo.UnionConfig = unionConfig
-			containerTypeInfo.IsDiscriminatedUnion = true
-		}
-
-		// Now find all payload structs that should be associated with this container
-		// We need to check all struct types in the package to see if they have union comments
-		for structName := range allStructTypes {
-			// Skip the container itself
-			if structName == containerType {
-				continue
-			}
-
-			// Check if this struct has a union comment that references this container
-			// This is the key part: we need to parse union comments from all files
-			// and associate payload structs with their containers
-			for _, unionComment := range allUnionComments {
-				if unionComment.ContainerType == containerType {
-					// Check if this struct is mentioned in any case mapping
-					for constantName, caseStructName := range unionComment.Cases {
-						if caseStructName == structName {
-							debugf("Found cross-file payload struct %s for case %s in container %s",
-								structName, constantName, containerType)
-							// The association is already in the union config
-							break
-						}
-					}
-				}
-			}
-		}
+	// Check if this file contains any structs that need code generation
+	// Only generate code for files that actually contain XDR-tagged structs
+	if len(types) == 0 {
+		debugf("No XDR-tagged structs found in %s, skipping code generation", inputFile)
+		return
 	}
 
 	// Validate discriminated unions with package-level constants
