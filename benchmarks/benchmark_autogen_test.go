@@ -1,3 +1,4 @@
+//go:generate xdrgen $GOFILE
 //go:build bench
 // +build bench
 

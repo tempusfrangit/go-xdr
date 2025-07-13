@@ -84,5 +84,14 @@ build-all: bin
 # Development workflow
 dev: format vet test
 
+# Build and run all examples
+examples: xdrgen
+	@echo "Building and running all examples..."
+	@for dir in examples/*/; do \
+		echo "=== Testing $$(basename $$dir) ==="; \
+		cd "$$dir" && go generate && go run . && cd ../..; \
+		echo ""; \
+	done
+
 # CI workflow
 ci: check-format vet test-race lint

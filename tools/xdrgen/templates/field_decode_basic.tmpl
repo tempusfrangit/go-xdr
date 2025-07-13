@@ -1,5 +1,5 @@
-{{.VarName}}Val, err := dec.{{.Method}}()
+{{.VarName}}, err := dec.{{.Method}}()
 	if err != nil {
 		return fmt.Errorf("failed to decode {{.FieldName}}: %w", err)
 	}
-	v.{{.FieldName}} = {{.VarName}}Val
+v.{{.FieldName}} = {{.TypeConversion}}{{.VarName}}{{.TypeConversionEnd}}

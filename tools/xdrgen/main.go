@@ -95,6 +95,13 @@ import (
 var silent bool
 var debug = false
 
+// Set debug from environment variable if present
+func init() {
+	if os.Getenv("XDRGEN_DEBUG") != "" {
+		debug = true
+	}
+}
+
 // logf logs a message unless in silent mode
 func logf(format string, args ...any) {
 	if !silent {
@@ -394,6 +401,11 @@ func validateUnionConfiguration(types []TypeInfo, constants map[string]string, t
 		// Validate that the key field type is a uint32 alias
 		keyFieldNode, exists := typeDefs[keyField.Type]
 		if !exists {
+			var keys []string
+			for k := range typeDefs {
+				keys = append(keys, k)
+			}
+			fmt.Printf("validateUnionConfiguration: keyField.Type=%q, typeDefs keys: %v\n", keyField.Type, keys)
 			errors = append(errors, ValidationError{
 				Location: fmt.Sprintf("union=%s,key=%s", containerType, keyField.Name),
 				Message:  fmt.Sprintf("key field type %s must be a Go type, not found", keyField.Type),
@@ -748,9 +760,12 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 	for _, commentGroup := range file.Comments {
 		for _, comment := range commentGroup.List {
 			text := strings.TrimSpace(strings.TrimPrefix(comment.Text, "//"))
-			if strings.HasPrefix(text, "go:generate") && strings.Contains(text, "xdrgen") && strings.Contains(text, "$GOFILE") {
-				hasGOFILEDirective = true
-				break
+			if strings.HasPrefix(text, "go:generate") && strings.Contains(text, "xdrgen") {
+				// Check for $GOFILE or just xdrgen (both mean process all structs with XDR tags)
+				if strings.Contains(text, "$GOFILE") || strings.TrimSpace(strings.TrimPrefix(text, "go:generate")) == "xdrgen" {
+					hasGOFILEDirective = true
+					break
+				}
 			}
 		}
 		if hasGOFILEDirective {
@@ -766,6 +781,8 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 
 	// Collect all union comments from the file
 	unionComments := make(map[string]*UnionConfig)
+	unionCommentPositions := make(map[token.Pos]*UnionConfig) // Track comment positions
+
 	for _, commentGroup := range file.Comments {
 		for _, comment := range commentGroup.List {
 			unionConfig, err := parseUnionComment(comment.Text)
@@ -776,6 +793,8 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 				debugf("Found union comment: %+v", unionConfig)
 				// Store by container type, but we'll fill in the struct names later
 				unionComments[unionConfig.ContainerType] = unionConfig
+				// Track the position of this comment for better association
+				unionCommentPositions[comment.Pos()] = unionConfig
 			}
 		}
 	}
@@ -787,6 +806,8 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 					Name: node.Name.Name,
 				}
 
+				debugf("Found struct: %s", typeInfo.Name)
+
 				// Check if this struct should be generated
 				shouldGenerate := false
 				if hasGOFILEDirective {
@@ -796,6 +817,7 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 							tag := strings.Trim(field.Tag.Value, "`")
 							if strings.Contains(tag, "xdr:") {
 								shouldGenerate = true
+								debugf("Struct %s has XDR tag: %s", typeInfo.Name, tag)
 								break
 							}
 						}
@@ -803,9 +825,11 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 				} else {
 					// Check explicit struct name in go:generate directives
 					shouldGenerate = structsToGenerate[typeInfo.Name]
+					debugf("Struct %s explicit generation: %v", typeInfo.Name, shouldGenerate)
 				}
 
 				if !shouldGenerate {
+					debugf("Skipping struct %s - no XDR tags or not in generate list", typeInfo.Name)
 					return true
 				}
 
@@ -886,6 +910,10 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 							fieldInfo.XDRType = "uint32"
 						}
 						if isUnion {
+							// Union fields must be []byte
+							if fieldInfo.Type != "[]byte" {
+								log.Fatalf("Union field %s.%s must be of type []byte (got %s)", typeInfo.Name, fieldInfo.Name, fieldInfo.Type)
+							}
 							// Union fields should be treated as bytes for encoding/decoding
 							fieldInfo.XDRType = "bytes"
 						}
@@ -911,15 +939,14 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 					}
 				} else {
 					// Check if this struct has a union comment (payload struct)
-					// The union comment should be on the payload struct and reference the container type
+					// For cross-file processing, we need to associate union comments with payload structs
+					// Since we don't have position information, we'll use a simpler approach
 					for containerType, unionConfig := range unionComments {
 						// Fill in the struct name for any empty case mappings
 						for constantName, structName := range unionConfig.Cases {
 							if structName == "" {
 								unionConfig.Cases[constantName] = typeInfo.Name
-								if debug {
-									debugf("Filled in struct name %s for case %s in container %s", typeInfo.Name, constantName, containerType)
-								}
+								debugf("Filled in cross-file struct name %s for case %s in container %s", typeInfo.Name, constantName, containerType)
 								break
 							}
 						}
@@ -1046,6 +1073,8 @@ func formatType(expr ast.Expr) string {
 			return "[]" + formatType(t.Elt)
 		}
 		return "[" + formatType(t.Len) + "]" + formatType(t.Elt)
+	case *ast.InterfaceType:
+		return "any"
 	case *ast.BasicLit:
 		return t.Value
 	default:
@@ -1227,6 +1256,7 @@ func main() {
 		if err != nil {
 			log.Fatal("Error discovering Go files:", err)
 		}
+		logf("processFileWithPackageContext: files to process: %v", files)
 
 		if len(files) == 0 {
 			logf("No files with //go:generate xdrgen found in %s", inputPath)
@@ -1250,9 +1280,391 @@ func main() {
 
 // processFile handles the processing of a single file
 func processFile(inputFile string) {
-	// For now, we'll process each file independently
-	// TODO: Implement package-level union configuration gathering
-	processFileIndependent(inputFile)
+	// Check if we're in package mode (inputFile is in a directory with other files)
+	dir := filepath.Dir(inputFile)
+	if isDirectory(dir) {
+		// Package mode: gather union configurations across all files
+		processFileWithPackageContext(inputFile, dir)
+	} else {
+		// Single file mode: process independently
+		processFileIndependent(inputFile)
+	}
+}
+
+// processFileWithPackageContext processes a file with package-level union configuration gathering
+func processFileWithPackageContext(inputFile, packageDir string) {
+	// Discover all Go files in the package
+	files, err := discoverGoFiles(packageDir)
+	if err != nil {
+		log.Fatal("Error discovering Go files:", err)
+	}
+
+	// Parse all files to gather union configurations and type information
+	allUnionComments := make(map[string]*UnionConfig)
+	allTypeDefs := make(map[string]ast.Node)
+	allConstants := make(map[string]string)
+	allStructTypes := make(map[string]bool) // Track all struct types across package
+
+	for _, file := range files {
+		// Parse each file to get union comments and type definitions
+		fset := token.NewFileSet()
+		astFile, err := parser.ParseFile(fset, file, nil, parser.ParseComments)
+		if err != nil {
+			log.Fatal("Error parsing file:", err)
+		}
+
+		// Collect union comments from this file
+		for _, commentGroup := range astFile.Comments {
+			for _, comment := range commentGroup.List {
+				unionConfig, err := parseUnionComment(comment.Text)
+				if err != nil {
+					log.Fatalf("Error parsing union comment: %v", err)
+				}
+				if unionConfig != nil {
+					debugf("Found cross-file union comment: %+v", unionConfig)
+					// Store by container type
+					allUnionComments[unionConfig.ContainerType] = unionConfig
+				}
+			}
+		}
+
+		// Build typeDefs map for this file
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			if node, ok := n.(*ast.TypeSpec); ok {
+				allTypeDefs[node.Name.Name] = node.Type
+				// Track struct types
+				if _, ok := node.Type.(*ast.StructType); ok {
+					allStructTypes[node.Name.Name] = true
+				}
+			}
+			return true
+		})
+
+		// Print typeDefs keys for this file
+		var fileKeys []string
+		for k := range allTypeDefs {
+			fileKeys = append(fileKeys, k)
+		}
+		debugf("processFileWithPackageContext: after %s, allTypeDefs keys: %v", file, fileKeys)
+
+		// Collect constants from this file
+		fileConstants := collectConstants(astFile)
+		for name, value := range fileConstants {
+			allConstants[name] = value
+		}
+	}
+
+	if debug {
+		var keys []string
+		for k := range allTypeDefs {
+			keys = append(keys, k)
+		}
+		fmt.Printf("processFileWithPackageContext: allTypeDefs keys: %v\n", keys)
+	}
+
+	// Now process the specific file with complete package context
+	processFileWithPackageUnionContext(inputFile, allUnionComments, allTypeDefs, allConstants, allStructTypes)
+}
+
+// processFileWithPackageUnionContext processes a file with complete package-level union configuration context
+func processFileWithPackageUnionContext(inputFile string, allUnionComments map[string]*UnionConfig, allTypeDefs map[string]ast.Node, allConstants map[string]string, allStructTypes map[string]bool) {
+	// Generate output file name, handling test files specially
+	var outputFile string
+	if strings.HasSuffix(inputFile, "_test.go") {
+		outputFile = strings.TrimSuffix(inputFile, "_test.go") + "_xdr_test.go"
+	} else {
+		outputFile = strings.TrimSuffix(inputFile, ".go") + "_xdr.go"
+	}
+
+	types, _, _, err := parseFile(inputFile)
+	if err != nil {
+		log.Fatal("Error parsing file:", err)
+	}
+
+	if len(types) == 0 {
+		logf("No types with XDR tags found in %s", inputFile)
+		return
+	}
+
+	// Show counts in standard mode
+	if !silent {
+		logf("Found %d types with XDR tags", len(types))
+	}
+
+	// Extract package name from input file
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, inputFile, nil, parser.ParseComments)
+	if err != nil {
+		log.Fatal("Error parsing package:", err)
+	}
+
+	packageName := file.Name.Name // Use the package name from the source file exactly, do not modify
+
+	// Use package-level constants for union validation
+	constants := allConstants
+
+	// Package-level union configuration aggregation
+	// First, associate union configurations with container structs
+	for _, typeInfo := range types {
+		if typeInfo.IsDiscriminatedUnion {
+			if unionConfig, exists := allUnionComments[typeInfo.Name]; exists {
+				typeInfo.UnionConfig = unionConfig
+				debugf("Associated cross-file union config with container struct %s", typeInfo.Name)
+			}
+		}
+	}
+
+	// Now aggregate all union configurations across the package
+	// This allows payload structs in any file to be associated with container structs in any other file
+	for containerType, unionConfig := range allUnionComments {
+		debugf("Processing union config for container %s: %+v", containerType, unionConfig)
+
+		// Find the container struct in the current file's types
+		var containerTypeInfo *TypeInfo
+		for i := range types {
+			if types[i].Name == containerType {
+				containerTypeInfo = &types[i]
+				break
+			}
+		}
+
+		// If container is not in this file, we need to create a placeholder for validation
+		if containerTypeInfo == nil {
+			debugf("Container struct %s not found in current file, creating placeholder", containerType)
+			// Create a placeholder TypeInfo for the container
+			placeholder := TypeInfo{
+				Name:                 containerType,
+				IsDiscriminatedUnion: true,
+				UnionConfig:          unionConfig,
+			}
+			types = append(types, placeholder)
+			containerTypeInfo = &types[len(types)-1]
+		}
+
+		// Ensure the container has the union config
+		if containerTypeInfo.UnionConfig == nil {
+			containerTypeInfo.UnionConfig = unionConfig
+			containerTypeInfo.IsDiscriminatedUnion = true
+		}
+
+		// Now find all payload structs that should be associated with this container
+		// We need to check all struct types in the package to see if they have union comments
+		for structName := range allStructTypes {
+			// Skip the container itself
+			if structName == containerType {
+				continue
+			}
+
+			// Check if this struct has a union comment that references this container
+			// This is the key part: we need to parse union comments from all files
+			// and associate payload structs with their containers
+			for _, unionComment := range allUnionComments {
+				if unionComment.ContainerType == containerType {
+					// Check if this struct is mentioned in any case mapping
+					for constantName, caseStructName := range unionComment.Cases {
+						if caseStructName == structName {
+							debugf("Found cross-file payload struct %s for case %s in container %s",
+								structName, constantName, containerType)
+							// The association is already in the union config
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Validate discriminated unions with package-level constants
+	if err := validateDiscriminatedUnions(types, constants); err != nil {
+		log.Fatal("Validation error:", err)
+	}
+
+	// Validate union configurations with package-level context
+	validationErrors := validateUnionConfiguration(types, constants, allTypeDefs, file)
+	if len(validationErrors) > 0 {
+		for _, err := range validationErrors {
+			logf("Validation error: %s: %s", err.Location, err.Message)
+		}
+		log.Fatal("Union configuration validation failed")
+	}
+
+	// Collect external imports
+	var externalImports []string
+	for _, typeInfo := range types {
+		imports := collectExternalImports([]TypeInfo{typeInfo})
+		externalImports = append(externalImports, imports...)
+	}
+
+	// Remove duplicates
+	externalImports = removeDuplicates(externalImports)
+
+	// Extract build tags from input file
+	buildTags := extractBuildTags(inputFile)
+
+	// Extract struct type names for dynamic type detection
+	// Include ALL struct types from the file, not just those being processed
+	var structTypeNames []string
+	for _, typeInfo := range types {
+		structTypeNames = append(structTypeNames, typeInfo.Name)
+	}
+
+	// Also collect all struct types from allTypeDefs (including those not being processed)
+	debugf("TypeDefs map contains %d types", len(allTypeDefs))
+	for typeName, typeNode := range allTypeDefs {
+		if _, ok := typeNode.(*ast.StructType); ok {
+			debugf("Found struct type in typeDefs: %s", typeName)
+			// Check if this struct type is not already in the list
+			found := false
+			for _, existing := range structTypeNames {
+				if existing == typeName {
+					found = true
+					break
+				}
+			}
+			if !found {
+				structTypeNames = append(structTypeNames, typeName)
+				debugf("Added struct type from typeDefs: %s", typeName)
+			}
+		}
+	}
+
+	// Also collect imported struct types from field types
+	for _, typeInfo := range types {
+		for _, field := range typeInfo.Fields {
+			debugf("Processing field %s.%s: Type=%s, XDRType=%s", typeInfo.Name, field.Name, field.Type, field.XDRType)
+
+			// Check if this field type is an imported struct
+			if strings.Contains(field.Type, ".") {
+				// Extract the type name from package.Type format
+				parts := strings.Split(field.Type, ".")
+				if len(parts) == 2 {
+					importedTypeName := parts[1]
+					debugf("Found imported type: %s (from %s)", importedTypeName, field.Type)
+					// Check if this imported type is not already in the list
+					found := false
+					for _, existing := range structTypeNames {
+						if existing == importedTypeName {
+							found = true
+							break
+						}
+					}
+					if !found {
+						// For imported types, we assume they are structs if they're used with xdr:"struct"
+						// or if they appear in array contexts
+						if field.XDRType == "struct" || field.XDRType == "array" {
+							structTypeNames = append(structTypeNames, importedTypeName)
+							debugf("Added imported struct type: %s", importedTypeName)
+						}
+					}
+				}
+			}
+
+			// Also check for imported types in array element types
+			if field.XDRType == "array" && strings.Contains(field.Type, "[]") {
+				elementType := strings.TrimPrefix(field.Type, "[]")
+				debugf("Array field %s.%s has element type: %s", typeInfo.Name, field.Name, elementType)
+				if strings.Contains(elementType, ".") {
+					// Extract the type name from package.Type format
+					parts := strings.Split(elementType, ".")
+					if len(parts) == 2 {
+						importedElementTypeName := parts[1]
+						debugf("Found imported array element type: %s (from %s)", importedElementTypeName, elementType)
+						// Check if this imported element type is not already in the list
+						found := false
+						for _, existing := range structTypeNames {
+							if existing == importedElementTypeName {
+								found = true
+								break
+							}
+						}
+						if !found {
+							// For imported types used as array elements, we assume they are structs
+							structTypeNames = append(structTypeNames, importedElementTypeName)
+							debugf("Added imported array element struct type: %s", importedElementTypeName)
+						}
+					}
+				} else {
+					// This is a type from the same package (no dot), check if it's not in allTypeDefs
+					if _, exists := allTypeDefs[elementType]; !exists {
+						// Type not found in current file, assume it's a struct from another file in the package
+						found := false
+						for _, existing := range structTypeNames {
+							if existing == elementType {
+								found = true
+								break
+							}
+						}
+						if !found {
+							structTypeNames = append(structTypeNames, elementType)
+							debugf("Added cross-file struct type from same package: %s", elementType)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Debug output for package-level processing
+	debugf("Package-level processing: parsed %d types", len(types))
+	for _, typeInfo := range types {
+		debugf("Type %s: IsDiscriminatedUnion=%v, UnionConfig=%+v",
+			typeInfo.Name, typeInfo.IsDiscriminatedUnion, typeInfo.UnionConfig)
+	}
+
+	debugf("Final structTypeNames list (%d types): %v", len(structTypeNames), structTypeNames)
+
+	// Create code generator
+	codeGen, err := NewCodeGenerator(structTypeNames)
+	if err != nil {
+		log.Fatal("Error creating code generator:", err)
+	}
+
+	// Generate output
+	var output strings.Builder
+
+	// Generate file header
+	header, err := codeGen.GenerateFileHeader(inputFile, packageName, externalImports, buildTags)
+	if err != nil {
+		log.Fatal("Error generating file header:", err)
+	}
+	output.WriteString(header)
+	output.WriteString("\n")
+
+	// Generate code for each type
+	for _, typeInfo := range types {
+		// Generate encode method
+		encodeMethod, err := codeGen.GenerateEncodeMethod(typeInfo)
+		if err != nil {
+			log.Fatal("Error generating encode method:", err)
+		}
+		output.WriteString(encodeMethod)
+		output.WriteString("\n")
+
+		// Generate decode method
+		decodeMethod, err := codeGen.GenerateDecodeMethod(typeInfo)
+		if err != nil {
+			log.Fatal("Error generating decode method:", err)
+		}
+		output.WriteString(decodeMethod)
+		output.WriteString("\n")
+
+		// Generate compile-time assertion
+		assertion, err := codeGen.GenerateAssertion(typeInfo.Name)
+		if err != nil {
+			log.Fatal("Error generating assertion:", err)
+		}
+		output.WriteString(assertion)
+		output.WriteString("\n")
+	}
+
+	// Write to output file
+	if err := os.WriteFile(outputFile, []byte(output.String()), 0644); err != nil {
+		log.Fatal("Error writing output file:", err)
+	}
+
+	if !silent {
+		logf("Generated XDR methods for %d types in %s", len(types), outputFile)
+	}
 }
 
 // processFileIndependent processes a single file without package-level context
