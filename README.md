@@ -57,7 +57,7 @@ func main() {
 }
 ```
 
-### Code Generation
+### Code Generation (Ultra-Minimal)
 
 Install the xdrgen tool:
 
@@ -71,7 +71,7 @@ Alternatively, you can run it directly without installing:
 go run github.com/tempusfrangit/go-xdr/tools/xdrgen@latest <args>
 ```
 
-Then define your structs with XDR tags:
+Define your structs with **minimal tagging** - everything auto-detected:
 
 ```go
 package main
@@ -80,14 +80,29 @@ package main
 
 import "github.com/tempusfrangit/go-xdr"
 
+// Type aliases (auto-resolved)
+type UserID string
+type Hash [32]byte
+
+// +xdr:generate
 type Person struct {
-    ID   uint32 `xdr:"uint32"`
-    Name string `xdr:"string"`
-    Age  uint32 `xdr:"uint32"`
+    ID     UserID  // auto-detected as string
+    Name   string  // auto-detected as string
+    Age    uint32  // auto-detected as uint32
+    Hash   Hash    // auto-detected as bytes with v.Hash[:] conversion
+    Active bool    // auto-detected as bool
+    Secret string  `xdr:"-"` // excluded from encoding
 }
 
 func main() {
-    p := &Person{ID: 1, Name: "Alice", Age: 30}
+    p := &Person{
+        ID: UserID("alice123"), 
+        Name: "Alice", 
+        Age: 30,
+        Hash: Hash{0x01, 0x02, /* ... */},
+        Active: true,
+        Secret: "password", // not encoded
+    }
     
     // Marshal to XDR
     data, err := xdr.Marshal(p)
@@ -110,82 +125,126 @@ Run code generation:
 go generate
 ```
 
-### Supported XDR Tags
+### Ultra-Minimal Tagging System
 
-- `xdr:"uint32"` - 32-bit unsigned integer
-- `xdr:"uint64"` - 64-bit unsigned integer
-- `xdr:"int64"` - 64-bit signed integer
-- `xdr:"string"` - variable-length string
-- `xdr:"bytes"` - variable-length byte array
-- `xdr:"bool"` - boolean value
-- `xdr:"struct"` - nested struct (must implement xdr.Codec)
-- `xdr:"array"` - variable-length array
-- `xdr:"fixed:N"` - fixed-size byte array (N bytes)
-- `xdr:"alias:TYPE"` - type alias with custom encoding
-- `xdr:"-"` - exclude field from encoding/decoding
+#### Struct Opt-in
+- `// +xdr:generate` - Mark struct for XDR code generation
 
-### Discriminated Unions
+#### Only 2 Tags Needed!
+- `xdr:"key[,default=nil|StructName]"` - union discriminant field
+- `xdr:"-"` - exclude field from encoding
 
-Discriminated unions use a clean, intuitive syntax with automatic void case detection:
+#### Everything Else Auto-Detected
+**Basic types** (from Go syntax):
+- `uint32`, `uint64`, `int32`, `int64` - integers
+- `string` - strings
+- `[]byte` - byte arrays  
+- `bool` - booleans
+- `[]Type`, `[N]Type` - arrays (element type auto-detected)
+- `CustomStruct` - structs (must implement xdr.Codec)
+
+**Type aliases** (auto-resolved with recursive unwrapping):
+- `type UserID string` → string with casting
+- `type Hash [16]byte` → bytes with `v.Hash[:]` conversion
+- `type StatusCode uint32` → uint32 with casting
+- `type Alias1 = Alias2; type Alias2 = string` → string (recursive)
+
+### Discriminated Unions (Auto-Detected)
+
+Unions are auto-detected from `key + []byte` field patterns:
 
 ```go
-type OperationResult struct {
-    Status Status `xdr:"key"`
-    Data   []byte `xdr:"union,default=nil"`
+// All-void union (default=nil optional, auto-inferred)
+// +xdr:generate
+type StatusOnly struct {
+    Status StatusCode `xdr:"key"` // discriminant
+    Data   []byte                 // auto-detected as union payload
+    // All StatusCode constants without payload structs → void cases
 }
 
-// OpSuccessResult for successful operations
-//xdr:union=OperationResult,case=StatusSuccess
-type OpSuccessResult struct {
-    Message string `xdr:"string"`
+// Mixed union with void default (default=nil required)
+// +xdr:generate
+type MixedOperation struct {
+    OpCode OpCode `xdr:"key,default=nil"` // void default for unknowns
+    Result []byte                         // auto-detected as union payload
+}
+
+// Mixed union with struct default
+// +xdr:generate
+type SafeOperation struct {
+    OpCode OpCode `xdr:"key,default=ErrorResult"` // struct default
+    Result []byte                                 // auto-detected as union payload
 }
 ```
 
 #### Key Features
 
-- **Clean Syntax**: `//xdr:union=<container>,case=<constant>` on payload structs
-- **Automatic Void Cases**: Any constants not mapped to payloads are automatically void (0 bytes)
-- **Type Safety**: Discriminant must be uint32 or uint32 alias, constants must be typed
-- **XDR Compliant**: Void cases marshal to 4 bytes (discriminant only), payload cases include data
+- **Auto-detection**: `[]byte` field immediately following `xdr:"key"` = union payload
+- **No union tags**: Eliminated `xdr:"union"` - position-based detection
+- **All-void unions**: `default=nil` optional (automatically inferred when no payloads exist)
+- **Mixed unions**: `default=nil` or `default=StructName` required for unknown discriminants
+- **Alias resolution**: Discriminant can be any uint32 alias, automatically resolved
+- **Type safety**: Compile-time validation with interface assertions
 
-#### Example: Multi-Type Union
+#### Example: Real-World Usage
 
 ```go
-type NetworkMessage struct {
-    Type    MessageType `xdr:"key"`
-    Payload []byte      `xdr:"union,default=nil"`
+// Type aliases for domain clarity
+type UserID string
+type SessionToken [16]byte
+type RequestID uint64
+
+// +xdr:generate
+type User struct {
+    ID      UserID       // auto-detected as string
+    Token   SessionToken // auto-detected as bytes with v.Token[:]
+    LastReq RequestID    // auto-detected as uint64
+    Active  bool         // auto-detected as bool
+    Internal string      `xdr:"-"` // excluded
 }
 
-// Text payload for text messages
-//xdr:union=NetworkMessage,case=MessageTypeText
-type TextPayload struct {
-    Content string `xdr:"string"`
-    Sender  string `xdr:"string"`
+// +xdr:generate
+type APIResponse struct {
+    Code APICode `xdr:"key,default=nil"` // void default for unknown codes
+    Data []byte                         // auto-detected union payload
 }
 
-// Binary payload for binary messages  
-//xdr:union=NetworkMessage,case=MessageTypeBinary
-type BinaryPayload struct {
-    Data     []byte `xdr:"bytes"`
-    Checksum uint32 `xdr:"uint32"`
+// Payload structs (no tags needed!)
+// +xdr:generate
+type SuccessPayload struct {
+    UserID   UserID
+    UserData []byte
+}
+
+// +xdr:generate
+type ErrorPayload struct {
+    Message string
+    Code    uint32
 }
 ```
 
-#### Void Cases
+#### Union Semantics
 
-Void cases are automatically inferred from constants not mapped to payload structs:
-
+**All-void unions** (no payload structs exist):
 ```go
 const (
-    StatusSuccess Status = 0  // mapped to OpSuccessResult
-    StatusError   Status = 1  // void case (no payload)
-    StatusPending Status = 2  // void case (no payload)
+    StatusSuccess Status = 0  // void case
+    StatusError   Status = 1  // void case  
+    StatusPending Status = 2  // void case
 )
+// All constants → void, marshal to 4 bytes (discriminant only)
+// default=nil is optional (auto-inferred)
 ```
 
-- `StatusError` and `StatusPending` are automatically void cases
-- They marshal to 4 bytes total (discriminant only)
-- No explicit configuration needed
+**Mixed unions** (some constants have payload structs):
+```go
+const (
+    OpSuccess OpCode = 0  // has SuccessPayload struct → non-void
+    OpError   OpCode = 1  // has ErrorPayload struct → non-void
+    OpPing    OpCode = 2  // no struct → void case
+)
+// default=nil or default=StructName REQUIRED for mixed unions
+```
 
 ### Building
 
@@ -212,8 +271,9 @@ XDR-Go is designed with allocation-efficient encoding/decoding patterns for opti
 Comprehensive examples are available in the [examples/](examples/) directory:
 
 - **[encode-decode/](examples/encode-decode/)** - Basic XDR encoding/decoding operations
-- **[autogen/](examples/autogen/)** - Auto-generated XDR methods using struct tags
-- **[discriminated-union/](examples/discriminated-union/)** - Discriminated unions with conditional encoding
+- **[autogen/](examples/autogen/)** - Ultra-minimal auto-generated XDR methods
+- **[discriminated-union/](examples/discriminated-union/)** - Auto-detected discriminated unions
+- **[alias-types/](examples/alias-types/)** - Type alias resolution and conversion
 - **[mixed-manual/](examples/mixed-manual/)** - Mixed auto-generated and manual XDR implementations
 
 Each example includes a README with detailed explanations and can be run independently.

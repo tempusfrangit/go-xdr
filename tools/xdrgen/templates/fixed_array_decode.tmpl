@@ -1,8 +1,3 @@
-{{.FieldName}}Len, err := dec.DecodeUint32()
-	if err != nil {
-		return fmt.Errorf("failed to decode {{.FieldName}} length: %w", err)
-	}
-v.{{.FieldName}} = make([]{{.ElementType}}, {{.FieldName}}Len)
 for i := range v.{{.FieldName}} {
 	{{if .ElementIsStruct}}
 	if err := v.{{.FieldName}}[i].Decode(dec); err != nil {
@@ -28,21 +23,21 @@ for i := range v.{{.FieldName}} {
 	v.{{.FieldName}}[i] = val
 	{{else if eq .ElementType "int32"}}
 	val, err := dec.DecodeInt32()
-		if err != nil {
+	if err != nil {
 		return fmt.Errorf("failed to decode element: %w", err)
-		}
+	}
 	v.{{.FieldName}}[i] = val
 	{{else if eq .ElementType "int64"}}
 	val, err := dec.DecodeInt64()
-		if err != nil {
+	if err != nil {
 		return fmt.Errorf("failed to decode element: %w", err)
-		}
+	}
 	v.{{.FieldName}}[i] = val
 	{{else if eq .ElementType "bool"}}
 	val, err := dec.DecodeBool()
-		if err != nil {
+	if err != nil {
 		return fmt.Errorf("failed to decode element: %w", err)
-		}
+	}
 	v.{{.FieldName}}[i] = val
 	{{else if eq .ElementType "byte"}}
 	val, err := dec.DecodeByte()
@@ -56,12 +51,8 @@ for i := range v.{{.FieldName}} {
 		return fmt.Errorf("failed to decode element: %w", err)
 	}
 	v.{{.FieldName}}[i] = val
-	{{else if hasPrefix .ElementType "["}}{{/* Fixed-size byte arrays like [16]byte */}}
-	if err := dec.DecodeFixedBytesInto(v.{{.FieldName}}[i][:]); err != nil {
-		return fmt.Errorf("failed to decode element: %w", err)
-	}
 	{{else}}
-	// Element type {{.ElementType}} - delegate to element's Decode method if available
+	// Element type {{.ElementType}} - delegate to element's Decode method
 	if err := v.{{.FieldName}}[i].Decode(dec); err != nil {
 		return fmt.Errorf("failed to decode element: %w", err)
 	}

@@ -16,19 +16,18 @@ const (
 	StatusPending Status = 2
 )
 
-// OperationResult demonstrates a discriminated union based on Status
-// The Data field is a union: for StatusSuccess, it is OpSuccessResult; for StatusError and StatusPending, it is nil.
+// +xdr:generate
+// OperationResult demonstrates auto-detected discriminated union
+// StatusError and StatusPending are automatically void cases (no payload structs)
 type OperationResult struct {
-	Status Status `xdr:"key"`
-	Data   []byte `xdr:"union,default=nil"`
+	Status Status `xdr:"key"` // discriminant
+	Data   []byte              // auto-detected union field
 }
 
-// OpSuccessResult for successful operations
-// (payload for StatusSuccess)
-//
-//xdr:union=OperationResult,case=StatusSuccess
+// +xdr:generate
+// OpSuccessResult for successful operations (payload for StatusSuccess)
 type OpSuccessResult struct {
-	Message string `xdr:"string"`
+	Message string
 }
 
 // MessageType type for NetworkMessage discriminant
@@ -41,26 +40,29 @@ const (
 	MessageTypeVoid   MessageType = 3
 )
 
+// +xdr:generate
+// +xdr:union=MessageType
+// +xdr:case=MessageTypeText
+// +xdr:case=MessageTypeBinary
 // NetworkMessage demonstrates discriminated union with different payload types
+// MessageTypeVoid is automatically a void case
 type NetworkMessage struct {
 	Type    MessageType `xdr:"key"`
-	Payload []byte      `xdr:"union,default=nil"`
+	Payload []byte
 }
 
+// +xdr:generate
 // TextPayload for text messages
-//
-//xdr:union=NetworkMessage,case=MessageTypeText
 type TextPayload struct {
-	Content string `xdr:"string"`
-	Sender  string `xdr:"string"`
+	Content string
+	Sender  string
 }
 
+// +xdr:generate
 // BinaryPayload for binary messages
-//
-//xdr:union=NetworkMessage,case=MessageTypeBinary
 type BinaryPayload struct {
-	Data     []byte `xdr:"bytes"`
-	Checksum uint32 `xdr:"uint32"`
+	Data     []byte
+	Checksum uint32
 }
 
 // OpType type for FileOperation discriminant
@@ -73,19 +75,22 @@ const (
 	OpTypeDelete OpType = 3
 )
 
+// +xdr:generate
+// +xdr:union=OpType
+// +xdr:case=OpTypeRead
 // FileOperation demonstrates conditional result data
+// OpTypeWrite and OpTypeDelete are automatically void cases
 type FileOperation struct {
 	OpType OpType `xdr:"key"`
-	Result []byte `xdr:"union,default=nil"`
+	Result []byte
 }
 
+// +xdr:generate
 // ReadResult contains the result of a read operation
-//
-//xdr:union=FileOperation,case=OpTypeRead
 type ReadResult struct {
-	Success bool   `xdr:"bool"`
-	Data    []byte `xdr:"bytes"`
-	Size    uint32 `xdr:"uint32"`
+	Success bool
+	Data    []byte
+	Size    uint32
 }
 
 // Ensure all types implement the Codec interface

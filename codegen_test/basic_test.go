@@ -1,4 +1,4 @@
-package xdr_test
+package codegen_test
 
 import (
 	"bytes"
@@ -10,7 +10,7 @@ import (
 
 // OpCode represents operation codes
 //
-//go:generate ./bin/xdrgen $GOFILE
+//go:generate ../bin/xdrgen $GOFILE
 type OpCode uint32
 
 const (
@@ -20,10 +20,11 @@ const (
 	OpWrite OpCode = 4
 )
 
+// +xdr:generate
 // Operation represents an operation
 type Operation struct {
-	OpCode OpCode `xdr:"alias"` // Operation code
-	Result []byte `xdr:"bytes"` // Result data
+	OpCode OpCode `xdr:"key"` // Operation discriminant
+	Result []byte // Union payload (auto-detected)
 }
 
 // OpOpenResult is the payload for OpOpen
@@ -50,22 +51,24 @@ type TestTimestamp int64
 type TestIsActive bool
 type TestHash [16]byte
 
-// Test struct using alias types
+// +xdr:generate
+// Test struct using alias types (all auto-detected)
 type TestUser struct {
-	ID       TestUserID     `xdr:"alias"`
-	Session  TestSessionID  `xdr:"alias"`
-	Status   TestStatusCode `xdr:"alias"`
-	Flags    TestFlags      `xdr:"alias"`
-	Priority TestPriority   `xdr:"alias"`
-	Created  TestTimestamp  `xdr:"alias"`
-	Active   TestIsActive   `xdr:"alias"`
-	Hash     TestHash       `xdr:"alias"`
+	ID       TestUserID     // auto-detected as string
+	Session  TestSessionID  // auto-detected as bytes
+	Status   TestStatusCode // auto-detected as uint32
+	Flags    TestFlags      // auto-detected as uint64
+	Priority TestPriority   // auto-detected as int32
+	Created  TestTimestamp  // auto-detected as int64
+	Active   TestIsActive   // auto-detected as bool
+	Hash     TestHash       // auto-detected as bytes
 }
 
+// +xdr:generate
 // TestCrossFileReference tests that we can reference types from codegen_xfile_test.go
 type TestCrossFileReference struct {
-	CrossFileData CrossFileStruct   `xdr:"struct"`
-	Items         []CrossFileStruct `xdr:"array"`
+	CrossFileData CrossFileStruct   // auto-detected as struct
+	Items         []CrossFileStruct // auto-detected as struct array
 }
 
 // Ensure TestUser implements Codec interface
@@ -361,10 +364,11 @@ const (
 	VoidOpPing VoidOpCode = 1
 )
 
-// VoidOperation tests void-only unions with default=nil
+// +xdr:generate
+// VoidOperation tests void-only unions (all-void, default optional)
 type VoidOperation struct {
-	OpCode VoidOpCode `xdr:"key"`               // Operation code
-	Data   []byte     `xdr:"union,default=nil"` // No payload needed
+	OpCode VoidOpCode `xdr:"key"` // Operation discriminant
+	Data   []byte     // Union payload (auto-detected as []byte following key)
 }
 
 func TestVoidOnlyUnion(t *testing.T) {

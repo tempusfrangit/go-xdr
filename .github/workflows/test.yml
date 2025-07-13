@@ -7,7 +7,7 @@ on:
 
 jobs:
   test:
-    needs: lint
+    needs: [lint, xdrgen-test]
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -70,8 +70,68 @@ jobs:
       with:
         version: latest
 
+  xdrgen-lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.20'
+    
+    - name: Run gci on xdrgen and check for unformatted files
+      run: |
+        go install github.com/daixiang0/gci@latest
+        cd tools/xdrgen
+        "$(go env GOPATH)/bin/gci" write \
+          --skip-generated \
+          -s standard \
+          -s default \
+          -s "prefix(github.com/tempusfrangit/go-xdr/tools/xdrgen)" \
+          .
+        if ! git diff --exit-code; then
+          echo "xdrgen code is not formatted. Run 'gci write .' locally in tools/xdrgen to fix."
+          exit 1
+        fi
+    
+    - name: Run golangci-lint on xdrgen
+      uses: golangci/golangci-lint-action@v8.0.0
+      with:
+        version: latest
+        working-directory: tools/xdrgen
+
+  xdrgen-test:
+    needs: xdrgen-lint
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.20', '1.21', '1.22', '1.23', '1.24']
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ matrix.go-version }}
+    
+    - name: Download xdrgen dependencies
+      run: |
+        cd tools/xdrgen
+        go mod download
+    
+    - name: Test xdrgen
+      run: |
+        cd tools/xdrgen
+        go test -v ./...
+    
+    - name: Test xdrgen with race detection
+      run: |
+        cd tools/xdrgen
+        go test -race -v ./...
+
   build:
-    needs: lint
+    needs: [lint, xdrgen-lint]
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -95,7 +155,7 @@ jobs:
     - name: Test xdrgen on examples
       run: |
         cd examples/autogen
-        ../../xdrgen -s types.go
+        ../../xdrgen types.go
         if [ ! -f types_xdr.go ]; then
           echo "xdrgen failed to generate types_xdr.go"
           exit 1

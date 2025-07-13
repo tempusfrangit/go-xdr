@@ -106,29 +106,25 @@ func TestParseXDRTag(t *testing.T) {
 	}
 }
 
-func TestParseKeyUnionTag(t *testing.T) {
+func TestParseKeyTag(t *testing.T) {
 	tests := []struct {
 		name            string
 		input           string
 		expectedKey     bool
-		expectedUnion   bool
 		expectedDefault string
 	}{
-		{"key tag", "key", true, false, ""},
-		{"union tag", "union", false, true, ""},
-		{"union with default", "union,default=OpOpenResult", false, true, "OpOpenResult"},
-		{"union with nil default", "union,default=nil", false, true, "nil"},
-		{"regular tag", "uint32", false, false, ""},
+		{"key tag", "key", true, ""},
+		{"key with nil default", "key,default=nil", true, "nil"},
+		{"key with struct default", "key,default=ErrorResult", true, "ErrorResult"},
+		{"non-key tag", "uint32", false, ""},
+		{"skip tag", "-", false, ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			isKey, isUnion, defaultType := parseKeyUnionTag(tt.input)
+			isKey, defaultType := parseKeyTag(tt.input)
 			if isKey != tt.expectedKey {
 				t.Errorf("Expected key %v, got %v", tt.expectedKey, isKey)
-			}
-			if isUnion != tt.expectedUnion {
-				t.Errorf("Expected union %v, got %v", tt.expectedUnion, isUnion)
 			}
 			if defaultType != tt.expectedDefault {
 				t.Errorf("Expected default %q, got %q", tt.expectedDefault, defaultType)
@@ -389,7 +385,7 @@ func TestParseUnionComment(t *testing.T) {
 	}
 }
 
-func TestInferUnderlyingType(t *testing.T) {
+func TestAutoDiscoverXDRType(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -398,26 +394,29 @@ func TestInferUnderlyingType(t *testing.T) {
 	}{
 		{"string", "string", "string", false},
 		{"[]byte", "[]byte", "bytes", false},
-		{"[16]byte", "[16]byte", "fixed:16", false},
+		{"[16]byte", "[16]byte", "bytes", false}, // Fixed arrays -> bytes
 		{"uint32", "uint32", "uint32", false},
 		{"uint64", "uint64", "uint64", false},
 		{"int32", "int32", "int32", false},
 		{"int64", "int64", "int64", false},
 		{"bool", "bool", "bool", false},
-		{"unsupported", "float64", "", true},
+		{"unsupported", "float64", "struct", true}, // Unsupported -> struct fallback
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := inferUnderlyingType(tt.input)
-			if tt.hasError && err == nil {
-				t.Error("Expected error, got nil")
-			}
-			if !tt.hasError && err != nil {
-				t.Errorf("Unexpected error: %v", err)
-			}
-			if result != tt.expected {
-				t.Errorf("Expected %q, got %q", tt.expected, result)
+			// Test the new auto-discovery system
+			typeAliases := make(map[string]string)
+			result := autoDiscoverXDRType(tt.input, typeAliases)
+			if tt.hasError {
+				// For unsupported types, expect "struct" as fallback
+				if result != "struct" {
+					t.Errorf("Expected struct fallback for %q, got %q", tt.input, result)
+				}
+			} else {
+				if result != tt.expected {
+					t.Errorf("Expected %q, got %q", tt.expected, result)
+				}
 			}
 		})
 	}

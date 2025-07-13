@@ -1,35 +1,10 @@
 package main
 
-//go:generate ../../bin/xdrgen $GOFILE
-
 import (
 	"fmt"
 
 	"github.com/tempusfrangit/go-xdr"
 )
-
-// Type aliases for demonstration
-type UserID string
-type SessionID []byte
-type StatusCode uint32
-type Flags uint64
-type Priority int32
-type Timestamp int64
-type IsActive bool
-
-// Example struct using alias types
-type User struct {
-	ID       UserID     `xdr:"alias"`
-	Session  SessionID  `xdr:"alias"`
-	Status   StatusCode `xdr:"alias"`
-	Flags    Flags      `xdr:"alias"`
-	Priority Priority   `xdr:"alias"`
-	Created  Timestamp  `xdr:"alias"`
-	Active   IsActive   `xdr:"alias"`
-}
-
-// Ensure User implements Codec interface
-var _ xdr.Codec = (*User)(nil)
 
 func main() {
 	// Create a user with alias types

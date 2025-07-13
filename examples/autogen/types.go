@@ -6,32 +6,45 @@ import (
 	"github.com/tempusfrangit/go-xdr"
 )
 
-// Person represents a person with auto-generated XDR methods
+// Type aliases for domain clarity (all auto-resolved)
+type PersonID uint32
+type EmailAddress string
+
+// +xdr:generate
+// Person represents a person - everything auto-detected!
 type Person struct {
-	ID    uint32 `xdr:"uint32"`
-	Name  string `xdr:"string"`
-	Age   uint32 `xdr:"uint32"`
-	Email string `xdr:"string"`
+	ID     PersonID     // auto-detected as uint32 with casting
+	Name   string       // auto-detected as string
+	Age    uint32       // auto-detected as uint32
+	Email  EmailAddress // auto-detected as string with casting
+	Secret string       `xdr:"-"` // excluded from encoding
 }
 
-// Company represents a company with nested structures
+// +xdr:generate
+// Company represents a company with nested structures and arrays
 type Company struct {
-	Name      string   `xdr:"string"`
-	Founded   uint32   `xdr:"uint32"`
-	CEO       Person   `xdr:"struct"`
-	Employees []Person `xdr:"array"`
+	Name      string   // auto-detected as string
+	Founded   uint32   // auto-detected as uint32
+	CEO       Person   // auto-detected as struct
+	Employees []Person // auto-detected as struct array
 }
 
-// ServerConfig represents server configuration
+// More type aliases
+type Port uint32
+type LogLevel string
+
+// +xdr:generate
+// ServerConfig shows comprehensive auto-detection
 type ServerConfig struct {
-	Host       string   `xdr:"string"`
-	Port       uint32   `xdr:"uint32"`
-	EnableTLS  bool     `xdr:"bool"`
-	MaxClients uint32   `xdr:"uint32"`
-	Timeout    uint64   `xdr:"uint64"`
-	LogLevel   string   `xdr:"string"`
-	Features   []string `xdr:"array"`
-	Metadata   []byte   `xdr:"bytes"`
+	Host       string    // auto-detected as string
+	Port       Port      // auto-detected as uint32 with casting
+	EnableTLS  bool      // auto-detected as bool
+	MaxClients uint32    // auto-detected as uint32
+	Timeout    uint64    // auto-detected as uint64
+	LogLevel   LogLevel  // auto-detected as string with casting
+	Features   []string  // auto-detected as string array
+	Metadata   []byte    // auto-detected as bytes
+	Internal   string    `xdr:"-"` // excluded
 }
 
 // Ensure all types implement the Codec interface

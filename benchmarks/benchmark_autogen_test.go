@@ -1,4 +1,4 @@
-//go:generate xdrgen $GOFILE
+//go:generate ../xdrgen $GOFILE
 //go:build bench
 // +build bench
 
@@ -10,30 +10,30 @@ import (
 	"github.com/tempusfrangit/go-xdr"
 )
 
-// BenchmarkPerson for testing basic struct auto-generation
+// +xdr:generate
 type BenchmarkPerson struct {
-	ID    uint32 `xdr:"uint32"`
-	Name  string `xdr:"string"`
-	Age   uint32 `xdr:"uint32"`
-	Email string `xdr:"string"`
+	ID    uint32 // auto-detected as uint32
+	Name  string // auto-detected as string
+	Age   uint32 // auto-detected as uint32
+	Email string // auto-detected as string
 }
 
-// BenchmarkCompany for testing nested struct and array auto-generation
+// +xdr:generate
 type BenchmarkCompany struct {
-	Name      string            `xdr:"string"`
-	Founded   uint32            `xdr:"uint32"`
-	CEO       BenchmarkPerson   `xdr:"struct"`
-	Employees []BenchmarkPerson `xdr:"array"`
+	Name      string            // auto-detected as string
+	Founded   uint32            // auto-detected as uint32
+	CEO       BenchmarkPerson   // auto-detected as struct
+	Employees []BenchmarkPerson // auto-detected as array
 }
 
-// BenchmarkConfig for testing mixed primitive types
+// +xdr:generate
 type BenchmarkConfig struct {
-	Host      string   `xdr:"string"`
-	Port      uint32   `xdr:"uint32"`
-	EnableTLS bool     `xdr:"bool"`
-	Timeout   uint64   `xdr:"uint64"`
-	Features  []string `xdr:"array"`
-	Metadata  []byte   `xdr:"bytes"`
+	Host      string   // auto-detected as string
+	Port      uint32   // auto-detected as uint32
+	EnableTLS bool     // auto-detected as bool
+	Timeout   uint64   // auto-detected as uint64
+	Features  []string // auto-detected as array
+	Metadata  []byte   // auto-detected as bytes
 }
 
 // Discriminated union constants
@@ -45,15 +45,17 @@ const (
 	BenchmarkStatusPending BenchmarkStatus = 2
 )
 
-// BenchmarkResult for testing discriminated union performance
+// +xdr:generate
 type BenchmarkResult struct {
-	Status BenchmarkStatus `xdr:"key"`
-	Data   []byte          `xdr:"union"`
+	Status BenchmarkStatus `xdr:"key"` // discriminant
+	Data   []byte                      // auto-detected as union payload
 }
 
-//xdr:union=BenchmarkResult,case=BenchmarkStatusSuccess
+// +xdr:generate
+// +xdr:union=BenchmarkResult
+// +xdr:case=BenchmarkStatusSuccess
 type BenchmarkSuccessResult struct {
-	Message string `xdr:"string"`
+	Message string // auto-detected as string
 }
 
 // Message type constants
@@ -65,16 +67,18 @@ const (
 	BenchmarkMsgVoid   BenchmarkMsgType = 3
 )
 
-// BenchmarkMessage for testing multi-case discriminated union
+// +xdr:generate
 type BenchmarkMessage struct {
-	Type    BenchmarkMsgType `xdr:"key"`
-	Payload []byte           `xdr:"union"`
+	Type    BenchmarkMsgType `xdr:"key"` // discriminant
+	Payload []byte                       // auto-detected as union payload
 }
 
-//xdr:union=BenchmarkMessage,case=BenchmarkMsgText
+// +xdr:generate
+// +xdr:union=BenchmarkMessage
+// +xdr:case=BenchmarkMsgText
 type BenchmarkTextPayload struct {
-	Content string `xdr:"string"`
-	Sender  string `xdr:"string"`
+	Content string // auto-detected as string
+	Sender  string // auto-detected as string
 }
 
 // Operation type constants
@@ -86,17 +90,19 @@ const (
 	BenchmarkOpDelete BenchmarkOpType = 3
 )
 
-// BenchmarkOperation for testing complex discriminated union
+// +xdr:generate
 type BenchmarkOperation struct {
-	OpType BenchmarkOpType `xdr:"key"`
-	Data   []byte          `xdr:"union"`
+	OpType BenchmarkOpType `xdr:"key"` // discriminant
+	Data   []byte                      // auto-detected as union payload
 }
 
-//xdr:union=BenchmarkOperation,case=BenchmarkOpRead
+// +xdr:generate
+// +xdr:union=BenchmarkOperation
+// +xdr:case=BenchmarkOpRead
 type BenchmarkReadResult struct {
-	Success bool   `xdr:"bool"`
-	Data    []byte `xdr:"bytes"`
-	Size    uint32 `xdr:"uint32"`
+	Success bool   // auto-detected as bool
+	Data    []byte // auto-detected as bytes
+	Size    uint32 // auto-detected as uint32
 }
 
 // Test data for benchmarks

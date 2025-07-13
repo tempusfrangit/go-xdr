@@ -86,3 +86,4 @@ linters:
       - third_party$
       - builtin$
       - examples$
+      - tools$

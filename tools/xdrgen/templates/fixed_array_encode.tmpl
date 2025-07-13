@@ -1,6 +1,3 @@
-if err := enc.EncodeUint32(uint32(len(v.{{.FieldName}}))); err != nil {
-		return fmt.Errorf("failed to encode {{.FieldName}} length: %w", err)
-	}
 for _, elem := range v.{{.FieldName}} {
 	{{if .ElementIsStruct}}
 	if err := elem.Encode(enc); err != nil {
@@ -11,39 +8,35 @@ for _, elem := range v.{{.FieldName}} {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}
 	{{else if eq .ElementType "uint32"}}
-	if err := enc.EncodeUint32(elem); err != nil {
+	if err := enc.EncodeUint32(uint32(elem)); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}
 	{{else if eq .ElementType "uint64"}}
-	if err := enc.EncodeUint64(elem); err != nil {
+	if err := enc.EncodeUint64(uint64(elem)); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}
 	{{else if eq .ElementType "int32"}}
-	if err := enc.EncodeInt32(elem); err != nil {
+	if err := enc.EncodeInt32(int32(elem)); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}
 	{{else if eq .ElementType "int64"}}
-	if err := enc.EncodeInt64(elem); err != nil {
+	if err := enc.EncodeInt64(int64(elem)); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}
 	{{else if eq .ElementType "bool"}}
-	if err := enc.EncodeBool(elem); err != nil {
-		return fmt.Errorf("failed to encode element: %w", err)
-	}
-	{{else if eq .ElementType "byte"}}
-	if err := enc.EncodeByte(elem); err != nil {
+	if err := enc.EncodeBool(bool(elem)); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}
 	{{else if eq .ElementType "[]byte"}}
 	if err := enc.EncodeBytes(elem); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}
-	{{else if hasPrefix .ElementType "["}}{{/* Fixed-size byte arrays like [16]byte */}}
+	{{else if eq .ElementType "byte"}}
 	if err := enc.EncodeFixedBytes(elem[:]); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}
 	{{else}}
-	// Element type {{.ElementType}} - delegate to element's Encode method if available
+	// Element type {{.ElementType}} - delegate to element's Encode method
 	if err := elem.Encode(enc); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}

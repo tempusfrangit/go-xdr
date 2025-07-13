@@ -40,8 +40,6 @@ type FieldData struct {
 	DiscriminantField string
 	Cases             []UnionCaseData
 	HasDefaultCase    bool
-	ElementEncodeCode string
-	ElementDecodeCode string
 	// Alias-specific fields
 	UnderlyingType string
 	AliasType      string
@@ -154,12 +152,10 @@ func NewTemplateManager() (*TemplateManager, error) {
 			}
 		case "array_encode", "array_decode":
 			dummy = FieldData{
-				FieldName:         "TestArray",
-				FieldType:         "[]string",
-				ElementType:       "string",
-				ElementIsStruct:   false,
-				ElementEncodeCode: "// dummy",
-				ElementDecodeCode: "// dummy",
+				FieldName:       "TestArray",
+				FieldType:       "[]string",
+				ElementType:     "string",
+				ElementIsStruct: false,
 			}
 		case "field_encode_alias", "field_decode_alias":
 			dummy = FieldData{
@@ -182,6 +178,17 @@ func NewTemplateManager() (*TemplateManager, error) {
 			}
 		case "union_case_void":
 			dummy = nil
+		case "fixed_array_encode", "fixed_array_decode":
+			dummy = FieldData{
+				FieldName:       "TestArray",
+				FieldType:       "[16]byte",
+				ElementType:     "byte",
+				ElementIsStruct: false,
+			}
+		case "fixed_bytes_encode", "fixed_bytes_decode":
+			dummy = FieldData{
+				FieldName: "TestBytes",
+			}
 		default:
 			dummy = struct{}{}
 		}
@@ -334,6 +341,42 @@ func (cg *CodeGenerator) GenerateAssertion(typeName string) (string, error) {
 
 // generateBasicEncodeCode generates basic encode code for a field
 func (cg *CodeGenerator) generateBasicEncodeCode(field FieldInfo) (string, error) {
+	// Special case: []byte with xdr:"bytes" should use bytes encoding, not array encoding
+	if field.Type == "[]byte" && field.XDRType == "bytes" {
+		method := cg.getEncodeMethod(field.XDRType)
+		if method == "" {
+			return "", fmt.Errorf("unsupported XDR type for encoding: %s", field.XDRType)
+		}
+
+		// Handle type conversions for alias types
+		typeConversion := ""
+		typeConversionEnd := ""
+		expectedType := cg.getExpectedGoType(field.XDRType)
+		if field.Type != expectedType {
+			typeConversion = expectedType + "("
+			typeConversionEnd = ")"
+		}
+
+		data := FieldData{
+			FieldName:         field.Name,
+			Method:            method,
+			TypeConversion:    typeConversion,
+			TypeConversionEnd: typeConversionEnd,
+		}
+		return cg.tm.ExecuteTemplate("field_encode_basic", data)
+	}
+
+	// Auto-detect array types from Go type syntax
+	if strings.HasPrefix(field.Type, "[]") {
+		// Variable-length array: []Type with xdr:"elementXDRType"
+		return cg.generateVariableArrayEncodeCode(field)
+	}
+
+	if strings.HasPrefix(field.Type, "[") && strings.Contains(field.Type, "]") {
+		// Fixed-length array: [N]Type with xdr:"elementXDRType"
+		return cg.generateFixedArrayEncodeCode(field)
+	}
+
 	// Handle struct types specially
 	if field.XDRType == "struct" {
 		data := FieldData{
@@ -342,70 +385,29 @@ func (cg *CodeGenerator) generateBasicEncodeCode(field FieldInfo) (string, error
 		return cg.tm.ExecuteTemplate("field_encode_struct", data)
 	}
 
-	// Handle array types specially
-	if field.XDRType == "array" {
-		elementType := strings.TrimPrefix(field.Type, "[]")
-		elementIsStruct := cg.resolveAliasToStruct(elementType)
-		data := FieldData{
-			FieldName:       field.Name,
-			FieldType:       field.Type,
-			ElementType:     goTypeForXDRType(elementType),
-			ElementIsStruct: elementIsStruct,
-		}
-		return cg.tm.ExecuteTemplate("array_encode", data)
-	}
-
-	// Handle alias types specially
-	if strings.HasPrefix(field.XDRType, "alias:") {
-		// Extract the underlying type from the alias specification
-		underlyingType := strings.TrimPrefix(field.XDRType, "alias:")
-		if underlyingType == "[]byte" {
-			underlyingType = "bytes"
-		}
-		// Handle fixed-size byte arrays like [16]byte
-		if strings.HasPrefix(underlyingType, "[") && strings.HasSuffix(underlyingType, "]byte") {
-			size := strings.TrimSuffix(strings.TrimPrefix(underlyingType, "["), "]byte")
-			underlyingType = "fixed:" + size
-		}
-		encodeMethod := cg.getEncodeMethod(underlyingType)
-		if encodeMethod == "" {
-			return "", fmt.Errorf("unsupported underlying type for alias: %s", underlyingType)
-		}
-
-		// Handle fixed-size byte arrays specially
-		if strings.HasPrefix(underlyingType, "fixed:") {
-			return fmt.Sprintf(`if err := enc.EncodeFixedBytes(v.%s[:]); err != nil {
-	return fmt.Errorf("failed to encode %s: %%w", err)
-}`, field.Name, field.Name), nil
-		}
-
-		data := FieldData{
-			FieldName:      field.Name,
-			UnderlyingType: goTypeForXDRType(underlyingType),
-			EncodeMethod:   encodeMethod,
-		}
-		return cg.tm.ExecuteTemplate("field_encode_alias", data)
-	}
-
-	// Handle fixed-size byte arrays specially (outside of alias handling)
-	if strings.HasPrefix(field.XDRType, "fixed:") {
-		return fmt.Sprintf(`if err := enc.EncodeFixedBytes(v.%s[:]); err != nil {
-	return fmt.Errorf("failed to encode %s: %%w", err)
-}`, field.Name, field.Name), nil
-	}
-
 	method := cg.getEncodeMethod(field.XDRType)
 	if method == "" {
 		return "", fmt.Errorf("unsupported XDR type for encoding: %s", field.XDRType)
 	}
 
-	// Handle type conversions for key fields (alias types)
+	// Handle type conversions for alias types
 	typeConversion := ""
 	typeConversionEnd := ""
-	if field.IsKey && field.Type != "uint32" {
-		// Key field is an alias type, need to convert to uint32
-		typeConversion = "uint32("
-		typeConversionEnd = ")"
+
+	// Get the expected Go type for this XDR type
+	expectedType := cg.getExpectedGoType(field.XDRType)
+	if field.Type != expectedType {
+		// Field type is an alias, need to convert to underlying type
+		// Special case: alias to fixed array that maps to []byte needs slicing
+		if expectedType == "[]byte" {
+			// Check if the alias resolves to a fixed byte array
+			// This handles cases like: type Hash [16]byte -> needs v.Hash[:]
+			typeConversion = ""
+			typeConversionEnd = "[:]"
+		} else {
+			typeConversion = expectedType + "("
+			typeConversionEnd = ")"
+		}
 	}
 
 	data := FieldData{
@@ -417,8 +419,88 @@ func (cg *CodeGenerator) generateBasicEncodeCode(field FieldInfo) (string, error
 	return cg.tm.ExecuteTemplate("field_encode_basic", data)
 }
 
+// generateVariableArrayEncodeCode generates encode code for []Type fields
+func (cg *CodeGenerator) generateVariableArrayEncodeCode(field FieldInfo) (string, error) {
+	elementType := strings.TrimPrefix(field.Type, "[]")
+	elementIsStruct := cg.resolveAliasToStruct(elementType)
+
+	data := FieldData{
+		FieldName:       field.Name,
+		FieldType:       field.Type,
+		ElementType:     elementType,
+		ElementIsStruct: elementIsStruct,
+		// Use the XDR tag as the element encoding type
+	}
+	return cg.tm.ExecuteTemplate("array_encode", data)
+}
+
+// generateFixedArrayEncodeCode generates encode code for [N]Type fields
+func (cg *CodeGenerator) generateFixedArrayEncodeCode(field FieldInfo) (string, error) {
+	// Extract [N] and Type from [N]Type
+	if !strings.Contains(field.Type, "]") {
+		return "", fmt.Errorf("invalid fixed array type: %s", field.Type)
+	}
+
+	closeBracket := strings.Index(field.Type, "]")
+	elementType := field.Type[closeBracket+1:] // Extract Type from [N]Type
+
+	// Special case: [N]byte with xdr:"bytes" -> use EncodeFixedBytes optimization
+	if elementType == "byte" && field.XDRType == "bytes" {
+		return cg.tm.ExecuteTemplate("fixed_bytes_encode", FieldData{
+			FieldName: field.Name,
+		})
+	}
+
+	// General case: [N]Type -> encode N elements individually
+	elementIsStruct := cg.resolveAliasToStruct(elementType)
+	data := FieldData{
+		FieldName:       field.Name,
+		FieldType:       field.Type,
+		ElementType:     elementType,
+		ElementIsStruct: elementIsStruct,
+	}
+	return cg.tm.ExecuteTemplate("fixed_array_encode", data)
+}
+
 // generateBasicDecodeCode generates basic decode code for a field
 func (cg *CodeGenerator) generateBasicDecodeCode(field FieldInfo) (string, error) {
+	// Special case: []byte with xdr:"bytes" should use bytes decoding, not array decoding
+	if field.Type == "[]byte" && field.XDRType == "bytes" {
+		method := cg.getDecodeMethod(field.XDRType)
+		if method == "" {
+			return "", fmt.Errorf("unsupported XDR type for decoding: %s", field.XDRType)
+		}
+
+		// Handle type conversions for alias types
+		typeConversion := ""
+		typeConversionEnd := ""
+		expectedType := cg.getExpectedGoType(field.XDRType)
+		if field.Type != expectedType {
+			typeConversion = field.Type + "("
+			typeConversionEnd = ")"
+		}
+
+		data := FieldData{
+			FieldName:         field.Name,
+			Method:            method,
+			VarName:           "temp" + field.Name,
+			TypeConversion:    typeConversion,
+			TypeConversionEnd: typeConversionEnd,
+		}
+		return cg.tm.ExecuteTemplate("field_decode_basic", data)
+	}
+
+	// Auto-detect array types from Go type syntax
+	if strings.HasPrefix(field.Type, "[]") {
+		// Variable-length array: []Type with xdr:"elementXDRType"
+		return cg.generateVariableArrayDecodeCode(field)
+	}
+
+	if strings.HasPrefix(field.Type, "[") && strings.Contains(field.Type, "]") {
+		// Fixed-length array: [N]Type with xdr:"elementXDRType"
+		return cg.generateFixedArrayDecodeCode(field)
+	}
+
 	// Handle struct types specially
 	if field.XDRType == "struct" {
 		data := FieldData{
@@ -427,73 +509,19 @@ func (cg *CodeGenerator) generateBasicDecodeCode(field FieldInfo) (string, error
 		return cg.tm.ExecuteTemplate("field_decode_struct", data)
 	}
 
-	// Handle array types specially
-	if field.XDRType == "array" {
-		elementType := strings.TrimPrefix(field.Type, "[]")
-		elementIsStruct := cg.resolveAliasToStruct(elementType)
-		data := FieldData{
-			FieldName:       field.Name,
-			FieldType:       field.Type,
-			ElementType:     goTypeForXDRType(elementType),
-			ElementIsStruct: elementIsStruct,
-		}
-		return cg.tm.ExecuteTemplate("array_decode", data)
-	}
-
-	// Handle alias types specially
-	if strings.HasPrefix(field.XDRType, "alias:") {
-		// Extract the underlying type from the alias specification
-		underlyingType := strings.TrimPrefix(field.XDRType, "alias:")
-		if underlyingType == "[]byte" {
-			underlyingType = "bytes"
-		}
-		// Handle fixed-size byte arrays like [16]byte
-		if strings.HasPrefix(underlyingType, "[") && strings.HasSuffix(underlyingType, "]byte") {
-			size := strings.TrimSuffix(strings.TrimPrefix(underlyingType, "["), "]byte")
-			underlyingType = "fixed:" + size
-		}
-		decodeMethod := cg.getDecodeMethod(underlyingType)
-		if decodeMethod == "" {
-			return "", fmt.Errorf("unsupported underlying type for alias: %s", underlyingType)
-		}
-
-		// Handle fixed-size byte arrays specially
-		if strings.HasPrefix(underlyingType, "fixed:") {
-			data := FieldData{
-				FieldName:      field.Name,
-				UnderlyingType: goTypeForXDRType(underlyingType),
-				AliasType:      field.Type,
-				DecodeMethod:   decodeMethod,
-			}
-			return cg.tm.ExecuteTemplate("field_decode_alias", data)
-		}
-
-		data := FieldData{
-			FieldName:      field.Name,
-			UnderlyingType: goTypeForXDRType(underlyingType),
-			AliasType:      field.Type,
-			DecodeMethod:   decodeMethod,
-		}
-		return cg.tm.ExecuteTemplate("field_decode_alias", data)
-	}
-
-	// Handle fixed-size byte arrays specially (outside of alias handling)
-	if strings.HasPrefix(field.XDRType, "fixed:") {
-		return fmt.Sprintf(`if err := dec.DecodeFixedBytesInto(v.%s[:]); err != nil {
-	return fmt.Errorf("failed to decode %s: %%w", err)
-}`, field.Name, field.Name), nil
-	}
-
 	method := cg.getDecodeMethod(field.XDRType)
 	if method == "" {
 		return "", fmt.Errorf("unsupported XDR type for decoding: %s", field.XDRType)
 	}
 
-	// Handle type conversions for key fields (alias types)
+	// Handle type conversions for alias types
 	typeConversion := ""
 	typeConversionEnd := ""
-	if field.IsKey && field.Type != "uint32" {
-		// Key field is an alias type, need to convert from uint32
+
+	// Get the expected Go type for this XDR type
+	expectedType := cg.getExpectedGoType(field.XDRType)
+	if field.Type != expectedType {
+		// Field type is an alias, need to convert from underlying type
 		typeConversion = field.Type + "("
 		typeConversionEnd = ")"
 	}
@@ -509,6 +537,49 @@ func (cg *CodeGenerator) generateBasicDecodeCode(field FieldInfo) (string, error
 	return cg.tm.ExecuteTemplate("field_decode_basic", data)
 }
 
+// generateVariableArrayDecodeCode generates decode code for []Type fields
+func (cg *CodeGenerator) generateVariableArrayDecodeCode(field FieldInfo) (string, error) {
+	elementType := strings.TrimPrefix(field.Type, "[]")
+	elementIsStruct := cg.resolveAliasToStruct(elementType)
+
+	data := FieldData{
+		FieldName:       field.Name,
+		FieldType:       field.Type,
+		ElementType:     elementType,
+		ElementIsStruct: elementIsStruct,
+		// Use the XDR tag as the element encoding type
+	}
+	return cg.tm.ExecuteTemplate("array_decode", data)
+}
+
+// generateFixedArrayDecodeCode generates decode code for [N]Type fields
+func (cg *CodeGenerator) generateFixedArrayDecodeCode(field FieldInfo) (string, error) {
+	// Extract [N] and Type from [N]Type
+	if !strings.Contains(field.Type, "]") {
+		return "", fmt.Errorf("invalid fixed array type: %s", field.Type)
+	}
+
+	closeBracket := strings.Index(field.Type, "]")
+	elementType := field.Type[closeBracket+1:] // Extract Type from [N]Type
+
+	// Special case: [N]byte with xdr:"bytes" -> use DecodeFixedBytesInto optimization
+	if elementType == "byte" && field.XDRType == "bytes" {
+		return cg.tm.ExecuteTemplate("fixed_bytes_decode", FieldData{
+			FieldName: field.Name,
+		})
+	}
+
+	// General case: [N]Type -> decode N elements individually
+	elementIsStruct := cg.resolveAliasToStruct(elementType)
+	data := FieldData{
+		FieldName:       field.Name,
+		FieldType:       field.Type,
+		ElementType:     elementType,
+		ElementIsStruct: elementIsStruct,
+	}
+	return cg.tm.ExecuteTemplate("fixed_array_decode", data)
+}
+
 // generateUnionEncodeCode generates union encode code for a field
 func (cg *CodeGenerator) generateUnionEncodeCode(field FieldInfo, structInfo TypeInfo) (string, error) {
 	keyField := findKeyField(structInfo)
@@ -517,8 +588,8 @@ func (cg *CodeGenerator) generateUnionEncodeCode(field FieldInfo, structInfo Typ
 	}
 
 	if structInfo.UnionConfig == nil {
-		// Check if this is a void-only union with default=nil
-		if field.DefaultType == "nil" {
+		// Check if this is a void-only union (either explicit default=nil or no union config)
+		if field.DefaultType == "nil" || structInfo.UnionConfig == nil {
 			// Generate minimal void-only union encode code
 			data := FieldData{
 				FieldName:         field.Name,
@@ -589,8 +660,8 @@ func (cg *CodeGenerator) generateUnionDecodeCode(field FieldInfo, structInfo Typ
 	}
 
 	if structInfo.UnionConfig == nil {
-		// Check if this is a void-only union with default=nil
-		if field.DefaultType == "nil" {
+		// Check if this is a void-only union (either explicit default=nil or no union config)
+		if field.DefaultType == "nil" || structInfo.UnionConfig == nil {
 			// Generate minimal void-only union decode code
 			data := FieldData{
 				FieldName:         field.Name,
@@ -775,3 +846,34 @@ func (cg *CodeGenerator) resolveAliasToStruct(typeName string) bool {
 }
 
 // Array element generation is now handled directly in the complete array templates
+
+// getExpectedGoType returns the expected Go type for a given XDR type
+func (cg *CodeGenerator) getExpectedGoType(xdrType string) string {
+	switch xdrType {
+	case "uint32":
+		return "uint32"
+	case "uint64":
+		return "uint64"
+	case "int32":
+		return "int32"
+	case "int64":
+		return "int64"
+	case "string":
+		return "string"
+	case "bytes":
+		return "[]byte"
+	case "bool":
+		return "bool"
+	case "auto":
+		// For auto, we can't determine the expected type without more context
+		// This should be resolved during parsing
+		return ""
+	default:
+		// Handle fixed-size byte arrays
+		if strings.HasPrefix(xdrType, "fixed:") {
+			return "[]byte" // Fixed arrays are treated as []byte for encoding
+		}
+		// For struct types and other custom types, return the type as-is
+		return xdrType
+	}
+}

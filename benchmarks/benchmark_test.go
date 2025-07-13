@@ -615,6 +615,8 @@ func BenchmarkComparison(b *testing.B) {
 }
 
 // Discriminated union types for memory benchmarks
+//go:generate ../xdrgen $GOFILE
+
 type MemBenchStatus uint32
 
 const (
@@ -623,15 +625,18 @@ const (
 	MemBenchStatusPending MemBenchStatus = 2
 )
 
+// +xdr:generate
 type MemBenchResult struct {
-	Status MemBenchStatus `xdr:"key"`
-	Data   []byte         `xdr:"union,default=nil"`
+	Status MemBenchStatus `xdr:"key,default=nil"` // discriminant with void default
+	Data   []byte                                  // auto-detected as union payload
 }
 
-//xdr:union=MemBenchResult,case=MemBenchStatusSuccess
+// +xdr:generate
+// +xdr:union=MemBenchResult
+// +xdr:case=MemBenchStatusSuccess
 type MemBenchSuccessResult struct {
-	Message string `xdr:"string"`
-	Details []byte `xdr:"bytes"`
+	Message string // auto-detected as string
+	Details []byte // auto-detected as bytes
 }
 
 func BenchmarkDiscriminatedUnionMemory(b *testing.B) {

@@ -10,11 +10,12 @@ import (
 	"github.com/tempusfrangit/go-xdr"
 )
 
+// +xdr:generate
 // MessageHeader is auto-generated but used in manual implementations
 type MessageHeader struct {
-	Version   uint32 `xdr:"uint32"`
-	MessageID uint32 `xdr:"uint32"`
-	Timestamp uint32 `xdr:"uint32"`
+	Version   uint32
+	MessageID uint32
+	Timestamp uint32
 }
 
 // CustomMessage demonstrates fully manual XDR implementation

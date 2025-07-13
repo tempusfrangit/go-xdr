@@ -14,10 +14,10 @@ import (
 // isSupportedXDRType checks if an XDR type is supported by the generator
 func isSupportedXDRType(xdrType string) bool {
 	switch xdrType {
-	case "uint32", "uint64", "int64", "string", "bytes", "bool", "struct", "array", "key":
+	case "uint32", "uint64", "int32", "int64", "string", "bytes", "bool", "struct":
 		return true
 	default:
-		return strings.HasPrefix(xdrType, "fixed:") || strings.HasPrefix(xdrType, "alias:")
+		return false
 	}
 }
 
@@ -101,25 +101,27 @@ func parseXDRTag(tag string) string {
 	return xdrPart
 }
 
-// parseKeyUnionTag parses key/union tags
-func parseKeyUnionTag(xdrTag string) (isKey bool, isUnion bool, defaultType string) {
+// parseKeyTag parses key tags with optional default parameter
+// Supports: "key" and "key,default=nil" and "key,default=StructName"
+func parseKeyTag(xdrTag string) (isKey bool, defaultType string) {
 	if xdrTag == "key" {
-		return true, false, ""
+		return true, ""
 	}
-	if xdrTag == "union" {
-		return false, true, ""
-	}
-	if strings.HasPrefix(xdrTag, "union,") {
-		// Parse union with options like "union,default=OpOpenResult"
+	if strings.HasPrefix(xdrTag, "key,") {
+		// Parse key with options like "key,default=nil" or "key,default=ErrorResult"
 		parts := strings.Split(xdrTag, ",")
 		for _, part := range parts[1:] {
 			if strings.HasPrefix(part, "default=") {
 				defaultType = strings.TrimPrefix(part, "default=")
+				// Validate default value
+				if defaultType != "nil" && defaultType == "" {
+					return false, "" // Invalid empty default
+				}
 			}
 		}
-		return false, true, defaultType
+		return true, defaultType
 	}
-	return false, false, ""
+	return false, ""
 }
 
 // parseUnionComment parses a union configuration comment
@@ -316,32 +318,6 @@ func formatType(expr ast.Expr) string {
 	}
 }
 
-// inferUnderlyingType infers the XDR underlying type from a Go type alias
-func inferUnderlyingType(goType string) (string, error) {
-	switch goType {
-	case "string":
-		return "string", nil
-	case "[]byte":
-		return "bytes", nil
-	case "uint32":
-		return "uint32", nil
-	case "uint64":
-		return "uint64", nil
-	case "int32":
-		return "int32", nil
-	case "int64":
-		return "int64", nil
-	case "bool":
-		return "bool", nil
-	default:
-		// Check for fixed-size byte arrays like [16]byte
-		if strings.HasPrefix(goType, "[") && strings.HasSuffix(goType, "]byte") {
-			return "fixed:" + strings.TrimSuffix(strings.TrimPrefix(goType, "["), "]byte"), nil
-		}
-		return "", fmt.Errorf("unsupported type for alias inference: %s (supported: string, []byte, [N]byte, uint32, uint64, int32, int64, bool)", goType)
-	}
-}
-
 // discoverGoFiles finds all .go files in a directory that have //go:generate xdrgen directives
 func discoverGoFiles(dir string) ([]string, error) {
 	var files []string
@@ -394,6 +370,190 @@ func parseFileWithPackageTypeDefs(filename string, packageTypeDefs map[string]as
 // parseFile parses a Go file and extracts structs that have go:generate xdrgen directives
 func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.Node, error) {
 	return parseFileInternal(filename, nil, nil)
+}
+
+// inferXDRType infers XDR type from Go type for xdr:"auto" tags
+func inferXDRType(goType string) string {
+	switch goType {
+	case "uint32":
+		return "uint32"
+	case "uint64":
+		return "uint64"
+	case "int32":
+		return "int32"
+	case "int64":
+		return "int64"
+	case "string":
+		return "string"
+	case "[]byte":
+		return "bytes"
+	case "bool":
+		return "bool"
+	default:
+		// Handle array types
+		if strings.HasPrefix(goType, "[]") {
+			elementType := strings.TrimPrefix(goType, "[]")
+			inferredElement := inferXDRType(elementType)
+			if inferredElement != "" {
+				return inferredElement // Return element type for arrays
+			}
+		}
+
+		// Handle fixed arrays
+		if strings.HasPrefix(goType, "[") && strings.Contains(goType, "]") {
+			closeBracket := strings.Index(goType, "]")
+			elementType := goType[closeBracket+1:]
+			inferredElement := inferXDRType(elementType)
+			if inferredElement != "" {
+				return inferredElement // Return element type for fixed arrays
+			}
+		}
+
+		// For unknown types, assume struct
+		return "struct"
+	}
+}
+
+// resolveAliasType recursively resolves alias chains to their underlying primitive type
+func resolveAliasType(goType string, typeAliases map[string]string) string {
+	seen := make(map[string]bool)
+	current := goType
+
+	for {
+		if seen[current] {
+			// Cycle detected, return struct
+			return "struct"
+		}
+		seen[current] = true
+
+		// Check if this is a known alias
+		if underlying, exists := typeAliases[current]; exists {
+			current = underlying
+			continue
+		}
+
+		// No more aliases to resolve
+		break
+	}
+
+	return current
+}
+
+// autoDiscoverXDRType maps Go types to their natural XDR equivalents
+func autoDiscoverXDRType(goType string, typeAliases map[string]string) string {
+	// First resolve any alias chains
+	resolvedType := resolveAliasType(goType, typeAliases)
+
+	switch resolvedType {
+	case "uint32":
+		return "uint32"
+	case "uint64":
+		return "uint64"
+	case "int32":
+		return "int32"
+	case "int64":
+		return "int64"
+	case "string":
+		return "string"
+	case "[]byte":
+		return "bytes"
+	case "bool":
+		return "bool"
+	default:
+		// Handle array types - return element type for array encoding
+		if strings.HasPrefix(resolvedType, "[]") {
+			elementType := strings.TrimPrefix(resolvedType, "[]")
+			return autoDiscoverXDRType(elementType, typeAliases) // Recurse for element type
+		}
+
+		// Handle fixed arrays - return element type for array encoding
+		if strings.HasPrefix(resolvedType, "[") && strings.Contains(resolvedType, "]") {
+			closeBracket := strings.Index(resolvedType, "]")
+			elementType := resolvedType[closeBracket+1:]
+			// Special case: [N]byte should be "bytes" not "struct"
+			if elementType == "byte" {
+				return "bytes"
+			}
+			return autoDiscoverXDRType(elementType, typeAliases) // Recurse for element type
+		}
+
+		// For custom types (structs, aliases), assume struct
+		return "struct"
+	}
+}
+
+// parseXDRDirective parses kubebuilder-style // +xdr: comments
+func parseXDRDirective(comment string) (directive string, args map[string]string, isList bool) {
+	comment = strings.TrimSpace(comment)
+	if !strings.HasPrefix(comment, "// +xdr:") {
+		return "", nil, false
+	}
+
+	// Remove "// +xdr:" prefix
+	content := strings.TrimPrefix(comment, "// +xdr:")
+
+	// Split directive from arguments
+	parts := strings.SplitN(content, "=", 2)
+	directive = strings.TrimSpace(parts[0])
+	args = make(map[string]string)
+
+	if len(parts) > 1 {
+		args["value"] = strings.TrimSpace(parts[1])
+	}
+
+	return directive, args, true
+}
+
+// XDRDirectives holds all XDR directives for a struct
+type XDRDirectives struct {
+	Generate bool
+	Union    string
+	Cases    []string
+}
+
+// collectXDRDirectives collects all // +xdr: directives immediately before a struct
+func collectXDRDirectives(file *ast.File, structPos token.Pos) *XDRDirectives {
+	directives := &XDRDirectives{}
+
+	// Find the comment group that immediately precedes this struct
+	var targetCommentGroup *ast.CommentGroup
+	for _, commentGroup := range file.Comments {
+		// Check if this comment group ends just before our struct (with possible whitespace)
+		if commentGroup.End() < structPos {
+			targetCommentGroup = commentGroup
+		} else if commentGroup.Pos() > structPos {
+			// We've gone past the struct, stop looking
+			break
+		}
+	}
+
+	// Only process the immediately preceding comment group
+	if targetCommentGroup != nil {
+		for _, comment := range targetCommentGroup.List {
+			directive, args, isXDR := parseXDRDirective(comment.Text)
+			if !isXDR {
+				continue
+			}
+
+			switch directive {
+			case "generate":
+				directives.Generate = true
+				debugf("Found +xdr:generate directive")
+			case "union":
+				if value, ok := args["value"]; ok {
+					directives.Union = value
+					debugf("Found +xdr:union=%s directive", value)
+				}
+			case "case":
+				if value, ok := args["value"]; ok {
+					directives.Cases = append(directives.Cases, value)
+					debugf("Found +xdr:case=%s directive", value)
+				}
+			}
+		}
+	}
+
+	return directives
 }
 
 // parseFileInternal is the internal implementation that can optionally use package-level type definitions
@@ -564,27 +724,39 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 				debugf("Found struct: %s", typeInfo.Name)
 
 				// Check if this struct should be generated
-				shouldGenerate := false
-				if hasGOFILEDirective {
-					// For $GOFILE directive, check if struct has XDR tags
-					for _, field := range structType.Fields.List {
-						if field.Tag != nil {
-							tag := strings.Trim(field.Tag.Value, "`")
-							if strings.Contains(tag, "xdr:") {
-								shouldGenerate = true
-								debugf("Struct %s has XDR tag: %s", typeInfo.Name, tag)
-								break
-							}
-						}
+				// Collect XDR directives for this struct
+				xdrDirectives := collectXDRDirectives(file, node.Pos())
+
+				// Only generate if struct has // +xdr:generate directive
+				shouldGenerate := xdrDirectives.Generate
+				if shouldGenerate {
+					debugf("Struct %s has +xdr:generate directive", typeInfo.Name)
+				}
+
+				// Check if this struct is a discriminated union container (has key field)
+				hasKeyField := false
+				for _, field := range typeInfo.Fields {
+					if field.IsKey {
+						hasKeyField = true
+						break
 					}
-				} else {
-					// Check explicit struct name in go:generate directives
-					shouldGenerate = structsToGenerate[typeInfo.Name]
-					debugf("Struct %s explicit generation: %v", typeInfo.Name, shouldGenerate)
+				}
+
+				// Only mark as discriminated union if it actually has a key field
+				if hasKeyField {
+					typeInfo.IsDiscriminatedUnion = true
+					debugf("Struct %s is a discriminated union container (has key field)", typeInfo.Name)
+				}
+
+				// Store XDR directives for payload structs (for later cross-file processing)
+				if shouldGenerate && (xdrDirectives.Union != "" || len(xdrDirectives.Cases) > 0) {
+					debugf("Struct %s has union directives: union=%s, cases=%v", typeInfo.Name, xdrDirectives.Union, xdrDirectives.Cases)
+					// This struct is a payload for another container - don't create UnionConfig here
+					// The cross-file processing will handle associating this with the correct container
 				}
 
 				if !shouldGenerate {
-					debugf("Skipping struct %s - no XDR tags or not in generate list", typeInfo.Name)
+					debugf("Skipping struct %s - no +xdr:generate directive", typeInfo.Name)
 					return true
 				}
 
@@ -601,26 +773,23 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 				}
 
 				for _, field := range structType.Fields.List {
+					// Skip embedded fields for now
+					if len(field.Names) == 0 {
+						continue
+					}
+
 					for _, name := range field.Names {
 						fieldInfo := FieldInfo{
 							Name: name.Name,
 							Type: formatType(field.Type),
 						}
 
-						// Require explicit XDR tags for all fields when struct is opted in
-						if field.Tag == nil {
-							log.Fatalf("Field %s.%s missing XDR tag. All fields in XDR-enabled structs must have explicit tags like `xdr:\"uint32\"` or `xdr:\"-\"` to exclude",
-								typeInfo.Name, name.Name)
-						}
-
-						tag := strings.Trim(field.Tag.Value, "`")
-						fieldInfo.Tag = tag
-						xdrTag := parseXDRTag(tag)
-
-						// Require XDR tag when struct is opted in
-						if xdrTag == "" {
-							log.Fatalf("Field %s.%s missing XDR tag. Use `xdr:\"type\"` or `xdr:\"-\"` to exclude",
-								typeInfo.Name, name.Name)
+						// Parse XDR tag if present
+						xdrTag := ""
+						if field.Tag != nil {
+							tag := strings.Trim(field.Tag.Value, "`")
+							fieldInfo.Tag = tag
+							xdrTag = parseXDRTag(tag)
 						}
 
 						// Check for explicit exclusion (like json:"-")
@@ -628,33 +797,40 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 							continue // Skip this field
 						}
 
-						// Only allow xdr:"alias" now
-						if xdrTag == "alias" {
-							// Look up underlying type from type definitions
-							underlyingType, exists := typeAliases[fieldInfo.Type]
-							if !exists {
-								// Fall back to direct type inference for built-in types
-								var err error
-								underlyingType, err = inferUnderlyingType(fieldInfo.Type)
-								if err != nil {
-									log.Fatalf("Cannot infer underlying type for alias field %s.%s of type %s: %v. Use xdr:\"alias\" only on supported types.",
-										typeInfo.Name, fieldInfo.Name, fieldInfo.Type, err)
-								}
+						// Handle XDR tags in minimal mode
+						if xdrTag != "" {
+							// Check for skip tag first
+							if xdrTag == "-" {
+								continue // Skip this field
 							}
-							logf("Alias field %s.%s: %s -> %s", typeInfo.Name, fieldInfo.Name, fieldInfo.Type, underlyingType)
-							fieldInfo.XDRType = "alias:" + underlyingType
-						} else {
-							fieldInfo.XDRType = xdrTag
+
+							// Check for key tag
+							isKey, defaultType := parseKeyTag(xdrTag)
+							if isKey {
+								// This is a key field
+								fieldInfo.IsKey = true
+								fieldInfo.DefaultType = defaultType
+							} else {
+								// Unknown tag - only key and - are supported
+								log.Fatalf("Unknown XDR tag '%s' for field %s.%s. Only 'key[,default=nil|StructName]' and '-' tags are supported", xdrTag, typeInfo.Name, fieldInfo.Name)
+							}
 						}
 
-						// Check for discriminated union tags
-						isKey, isUnion, defaultType := parseKeyUnionTag(fieldInfo.XDRType)
-						fieldInfo.IsKey = isKey
-						fieldInfo.IsUnion = isUnion
-						fieldInfo.DefaultType = defaultType // Store the default type from the tag
+						// Auto-discover XDR type from Go type
+						autoType := autoDiscoverXDRType(fieldInfo.Type, typeAliases)
+						fieldInfo.XDRType = autoType
+						debugf("Auto-discovered XDR type for %s.%s: %s -> %s", typeInfo.Name, fieldInfo.Name, fieldInfo.Type, autoType)
+
+						// Auto-detect union field: []byte immediately following a key field
+						if len(typeInfo.Fields) > 0 && typeInfo.Fields[len(typeInfo.Fields)-1].IsKey && fieldInfo.Type == "[]byte" {
+							fieldInfo.IsUnion = true
+							// Union fields should be treated as bytes for encoding/decoding
+							fieldInfo.XDRType = "bytes"
+							debugf("Auto-detected union field %s.%s ([]byte following key field)", typeInfo.Name, fieldInfo.Name)
+						}
 
 						// Mark struct as discriminated union if it contains key field
-						if isKey {
+						if fieldInfo.IsKey {
 							typeInfo.IsDiscriminatedUnion = true
 							// Key fields must be uint32 type or an alias of uint32
 							underlyingType, ok := typeAliases[fieldInfo.Type]
@@ -668,18 +844,10 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 							// Key fields should be treated as uint32 for encoding/decoding
 							fieldInfo.XDRType = "uint32"
 						}
-						if isUnion {
-							// Union fields must be []byte
-							if fieldInfo.Type != "[]byte" {
-								log.Fatalf("Union field %s.%s must be of type []byte (got %s)", typeInfo.Name, fieldInfo.Name, fieldInfo.Type)
-							}
-							// Union fields should be treated as bytes for encoding/decoding
-							fieldInfo.XDRType = "bytes"
-						}
 
 						// Validate that we can handle this XDR type (after key/union processing)
 						if !isSupportedXDRType(fieldInfo.XDRType) {
-							log.Fatalf("Unsupported XDR type '%s' for field %s.%s. Supported types: uint32, uint64, string, bytes, bool, struct, array, fixed:N, key, union. Add support or implement custom Encode/Decode methods.",
+							log.Fatalf("Unsupported XDR type '%s' for field %s.%s. Supported types: uint32, uint64, int32, int64, string, bytes, bool, struct, key, union. Arrays are auto-detected from []Type and [N]Type syntax.",
 								fieldInfo.XDRType, typeInfo.Name, fieldInfo.Name)
 						}
 

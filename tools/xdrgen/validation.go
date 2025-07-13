@@ -139,13 +139,13 @@ func validateUnionConfiguration(types []TypeInfo, constants map[string]string, t
 				})
 			}
 
-			// Handle void cases (nil)
-			if structName == "nil" {
+			// Handle void cases (nil or empty string)
+			if structName == "nil" || structName == "" {
 				continue // Void case - no validation needed
 			}
 
 			// Validate struct or alias-to-struct
-			resolved, kind := resolveToStruct(structName)
+			_, kind := resolveToStruct(structName)
 			switch kind {
 			case "notype":
 				errors = append(errors, ValidationError{
@@ -153,15 +153,7 @@ func validateUnionConfiguration(types []TypeInfo, constants map[string]string, t
 					Message:  fmt.Sprintf("union case payload type %s not found", structName),
 				})
 			case "struct":
-				// Check all fields are tagged
-				for _, field := range resolved.Fields.List {
-					if field.Tag == nil {
-						errors = append(errors, ValidationError{
-							Location: fmt.Sprintf("union=%s,case=%s", containerType, constantName),
-							Message:  fmt.Sprintf("field %s in struct %s is missing xdr tag", field.Names[0].Name, structName),
-						})
-					}
-				}
+				// Fields are auto-detected, no explicit tags required
 			default:
 				errors = append(errors, ValidationError{
 					Location: fmt.Sprintf("union=%s,case=%s", containerType, constantName),
@@ -188,7 +180,7 @@ func validateUnionConfiguration(types []TypeInfo, constants map[string]string, t
 			}
 			if unionField.DefaultType != "" && unionField.DefaultType != "nil" {
 				// Validate that the default type exists
-				resolved, kind := resolveToStruct(unionField.DefaultType)
+				_, kind := resolveToStruct(unionField.DefaultType)
 				switch kind {
 				case "notype":
 					errors = append(errors, ValidationError{
@@ -196,15 +188,7 @@ func validateUnionConfiguration(types []TypeInfo, constants map[string]string, t
 						Message:  fmt.Sprintf("default type %s not found", unionField.DefaultType),
 					})
 				case "struct":
-					// Check all fields are tagged
-					for _, field := range resolved.Fields.List {
-						if field.Tag == nil {
-							errors = append(errors, ValidationError{
-								Location: fmt.Sprintf("union field %s default type %s", unionField.Name, unionField.DefaultType),
-								Message:  fmt.Sprintf("field %s in default struct %s is missing xdr tag", field.Names[0].Name, unionField.DefaultType),
-							})
-						}
-					}
+					// Fields are auto-detected, no explicit tags required
 				default:
 					errors = append(errors, ValidationError{
 						Location: fmt.Sprintf("union field %s", unionField.Name),
@@ -229,25 +213,8 @@ func validateCompletePackageState(allContainerStructs map[string]*TypeInfo, allU
 		}
 	}
 
-	// Validate that all containers have union configs
-	for containerName, containerStruct := range allContainerStructs {
-		if containerStruct.UnionConfig == nil {
-			// Check if the container has default=nil on its union field
-			hasDefaultNil := false
-			if len(containerStruct.Fields) > 0 {
-				for _, field := range containerStruct.Fields {
-					if field.IsUnion && field.DefaultType == "nil" {
-						hasDefaultNil = true
-						break
-					}
-				}
-			}
-
-			if !hasDefaultNil {
-				errors = append(errors, fmt.Sprintf("Container struct %s has key/union fields but no payload structs found. Add union comments (//xdr:union=%s,case=<constant>) to payload structs or use xdr:\"union,default=nil\" for void-only unions", containerName, containerName))
-			}
-		}
-	}
+	// Note: Containers without union configs are valid (all-void unions)
+	// No validation needed here - having key/union fields without payload structs is perfectly fine
 
 	// Validate that all constants referenced in union cases exist
 	for containerType, unionConfig := range allUnionComments {
@@ -292,16 +259,32 @@ func validateDiscriminatedUnions(types []TypeInfo, constants map[string]string) 
 			if keyCount != 1 {
 				return fmt.Errorf("Discriminated union struct %s must have exactly one key field, found %d", typeInfo.Name, keyCount)
 			}
+
+			// Check if this is an all-void union (no union field needed)
+			allCasesVoid := true
+			if typeInfo.UnionConfig != nil {
+				debugf("Checking void cases for %s: %+v", typeInfo.Name, typeInfo.UnionConfig.Cases)
+				for caseName, structName := range typeInfo.UnionConfig.Cases {
+					debugf("Case %s -> struct %s", caseName, structName)
+					if structName != "" && structName != "nil" {
+						allCasesVoid = false
+						debugf("Found non-void case: %s -> %s", caseName, structName)
+						break
+					}
+				}
+			}
+			debugf("AllCasesVoid for %s: %v", typeInfo.Name, allCasesVoid)
+
 			if unionCount == 0 {
-				return fmt.Errorf("Discriminated union struct %s must have at least one union field", typeInfo.Name)
+				return fmt.Errorf("Discriminated union struct %s must have exactly one union field", typeInfo.Name)
 			}
 
-			// Validate ordered pair requirement: key must be immediately followed by union
-			if unionIndex != keyIndex+1 {
+			// Validate ordered pair requirement: key must be immediately followed by union (only if union field exists)
+			if unionCount > 0 && unionIndex != keyIndex+1 {
 				return fmt.Errorf("Discriminated union struct %s: key field must be immediately followed by union field", typeInfo.Name)
 			}
 
-			logf("Validated discriminated union %s: %d key, %d union fields", typeInfo.Name, keyCount, unionCount)
+			debugf("Validated discriminated union %s: %d key, %d union fields", typeInfo.Name, keyCount, unionCount)
 		}
 	}
 	return nil
