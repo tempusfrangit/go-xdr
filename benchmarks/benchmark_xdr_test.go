@@ -7,7 +7,7 @@
 // Source: /Users/m/skratch/go-xdr/benchmark_test.go
 // Generated: 2025-07-12T15:20:42-07:00
 
-package xdr_test
+package xdr_bench
 
 import (
 	"fmt"

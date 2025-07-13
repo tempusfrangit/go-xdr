@@ -1,7 +1,7 @@
 //go:build bench
 // +build bench
 
-package xdr_test
+package xdr_bench
 
 import (
 	"bytes"
