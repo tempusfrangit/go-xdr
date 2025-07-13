@@ -503,6 +503,16 @@ func (cg *CodeGenerator) generateUnionEncodeCode(field FieldInfo, structInfo Typ
 	}
 
 	if structInfo.UnionConfig == nil {
+		// Check if this is a void-only union with default=nil
+		if field.DefaultType == "nil" {
+			// Generate minimal void-only union encode code
+			data := FieldData{
+				FieldName:         field.Name,
+				DiscriminantField: keyField,
+				Cases:             []UnionCaseData{},
+			}
+			return cg.tm.ExecuteTemplate("union_encode", data)
+		}
 		return "", fmt.Errorf("no union configuration found for struct %s", structInfo.Name)
 	}
 
@@ -565,6 +575,16 @@ func (cg *CodeGenerator) generateUnionDecodeCode(field FieldInfo, structInfo Typ
 	}
 
 	if structInfo.UnionConfig == nil {
+		// Check if this is a void-only union with default=nil
+		if field.DefaultType == "nil" {
+			// Generate minimal void-only union decode code
+			data := FieldData{
+				FieldName:         field.Name,
+				DiscriminantField: keyField,
+				Cases:             []UnionCaseData{},
+			}
+			return cg.tm.ExecuteTemplate("union_decode", data)
+		}
 		return "", fmt.Errorf("no union configuration found for struct %s", structInfo.Name)
 	}
 

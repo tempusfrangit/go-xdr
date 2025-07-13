@@ -1380,10 +1380,30 @@ func processFileWithPackageContext(inputFile, packageDir string) {
 								}
 							}
 							if hasKey && hasUnion {
-								// Create a minimal TypeInfo for the container
+								// Create a TypeInfo with field information for the container
+								var fields []FieldInfo
+								for _, field := range structType.Fields.List {
+									if field.Tag != nil {
+										tag := strings.Trim(field.Tag.Value, "`")
+										xdrTag := parseXDRTag(tag)
+										isKey, isUnion, defaultType := parseKeyUnionTag(xdrTag)
+
+										if field.Names != nil && len(field.Names) > 0 {
+											fieldInfo := FieldInfo{
+												Name:        field.Names[0].Name,
+												IsKey:       isKey,
+												IsUnion:     isUnion,
+												DefaultType: defaultType,
+											}
+											fields = append(fields, fieldInfo)
+										}
+									}
+								}
+
 								containerInfo := &TypeInfo{
 									Name:                 typeSpec.Name.Name,
 									IsDiscriminatedUnion: true,
+									Fields:               fields,
 									UnionConfig:          nil, // Will be set during association
 								}
 								allContainerStructs[typeSpec.Name.Name] = containerInfo
@@ -1448,7 +1468,20 @@ func validateCompletePackageState(allContainerStructs map[string]*TypeInfo, allU
 	// Validate that all containers have union configs
 	for containerName, containerStruct := range allContainerStructs {
 		if containerStruct.UnionConfig == nil {
-			errors = append(errors, fmt.Sprintf("Container struct %s has key/union fields but no payload structs found. Add union comments (//xdr:union=%s,case=<constant>) to payload structs", containerName, containerName))
+			// Check if the container has default=nil on its union field
+			hasDefaultNil := false
+			if len(containerStruct.Fields) > 0 {
+				for _, field := range containerStruct.Fields {
+					if field.IsUnion && field.DefaultType == "nil" {
+						hasDefaultNil = true
+						break
+					}
+				}
+			}
+
+			if !hasDefaultNil {
+				errors = append(errors, fmt.Sprintf("Container struct %s has key/union fields but no payload structs found. Add union comments (//xdr:union=%s,case=<constant>) to payload structs or use xdr:\"union,default=nil\" for void-only unions", containerName, containerName))
+			}
 		}
 	}
 
