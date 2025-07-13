@@ -35,7 +35,10 @@
 
 # Allow tools directory
 !/tools/
-!/tools/**/*
+!/tools/**/*.go
+!/tools/**/go.mod
+!/tools/**/go.sum
+!/tools/**/xdrgen/templates/*.tmpl
 
 # ...even if they are in subdirectories
 !*/
