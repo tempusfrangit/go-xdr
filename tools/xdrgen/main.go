@@ -116,13 +116,6 @@ func debugf(format string, args ...any) {
 	}
 }
 
-
-
-
-
-
-
-
 // parsePackage parses all files in a package to build complete union configurations
 func parsePackage(packageDir string) (map[string][]TypeInfo, map[string]map[string]ast.Node, error) {
 	// Discover all Go files in the package
@@ -154,10 +147,6 @@ func parsePackage(packageDir string) (map[string][]TypeInfo, map[string]map[stri
 
 	return fileTypes, fileTypeDefs, nil
 }
-
-
-
-
 
 // isDirectory checks if the given path is a directory
 func isDirectory(path string) bool {
@@ -477,7 +466,6 @@ func processFileWithPackageContext(inputFile, packageDir string) {
 	// Now process the specific file with complete package context
 	processFileWithPackageUnionContext(inputFile, allUnionComments, allTypeDefs, allConstants, allStructTypes, allContainerStructs)
 }
-
 
 // processFileWithPackageUnionContext processes a file with complete package-level union configuration context
 func processFileWithPackageUnionContext(inputFile string, allUnionComments map[string]*UnionConfig, allTypeDefs map[string]ast.Node, allConstants map[string]string, allStructTypes map[string]bool, allContainerStructs map[string]*TypeInfo) {
@@ -968,4 +956,3 @@ func processFileIndependent(inputFile string) {
 		logf("Generated XDR methods for %d types in %s", len(types), outputFile)
 	}
 }
-

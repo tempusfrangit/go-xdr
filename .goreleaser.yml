@@ -6,7 +6,7 @@ before:
   hooks:
     - go mod tidy
     - sh -c "cd tools/xdrgen && go build -o ../../bin/xdrgen ."
-    - go generate ./...
+    - sh -c "PATH=$PWD/bin:$PATH go generate ./..."
 
 builds:
   - id: xdrgen
