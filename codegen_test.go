@@ -61,8 +61,15 @@ type TestUser struct {
 	Hash     TestHash       `xdr:"alias"`
 }
 
+// TestCrossFileReference tests that we can reference types from codegen_xfile_test.go
+type TestCrossFileReference struct {
+	CrossFileData CrossFileStruct   `xdr:"struct"`
+	Items         []CrossFileStruct `xdr:"array"`
+}
+
 // Ensure TestUser implements Codec interface
 var _ xdr.Codec = (*TestUser)(nil)
+var _ xdr.Codec = (*TestCrossFileReference)(nil)
 
 func TestAliasRoundTrip(t *testing.T) {
 	// Create a test user with alias types
@@ -342,5 +349,51 @@ func TestFixedArrayVsSliceHandling(t *testing.T) {
 	// Second decode should have original value, not modified value
 	if !bytes.Equal([]byte(decoded2.Session), originalSession) {
 		t.Errorf("Session not properly isolated: expected %v, got %v", originalSession, decoded2.Session)
+	}
+}
+
+func TestCrossFileStructTypes(t *testing.T) {
+	// Test that struct types from other files in the same package work correctly
+	original := &TestCrossFileReference{
+		CrossFileData: CrossFileStruct{
+			ID:   123,
+			Name: "test",
+		},
+		Items: []CrossFileStruct{
+			{ID: 1, Name: "item1"},
+			{ID: 2, Name: "item2"},
+		},
+	}
+
+	data, err := xdr.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var decoded TestCrossFileReference
+	err = xdr.Unmarshal(data, &decoded)
+	if err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	// Verify the struct field
+	if decoded.CrossFileData.ID != original.CrossFileData.ID {
+		t.Errorf("CrossFileData.ID mismatch: expected %d, got %d", original.CrossFileData.ID, decoded.CrossFileData.ID)
+	}
+	if decoded.CrossFileData.Name != original.CrossFileData.Name {
+		t.Errorf("CrossFileData.Name mismatch: expected %s, got %s", original.CrossFileData.Name, decoded.CrossFileData.Name)
+	}
+
+	// Verify the array field
+	if len(decoded.Items) != len(original.Items) {
+		t.Errorf("Items length mismatch: expected %d, got %d", len(original.Items), len(decoded.Items))
+	}
+	for i, item := range original.Items {
+		if decoded.Items[i].ID != item.ID {
+			t.Errorf("Items[%d].ID mismatch: expected %d, got %d", i, item.ID, decoded.Items[i].ID)
+		}
+		if decoded.Items[i].Name != item.Name {
+			t.Errorf("Items[%d].Name mismatch: expected %s, got %s", i, item.Name, decoded.Items[i].Name)
+		}
 	}
 }

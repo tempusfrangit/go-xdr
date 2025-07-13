@@ -1195,9 +1195,106 @@ func main() {
 	buildTags := extractBuildTags(inputFile)
 
 	// Extract struct type names for dynamic type detection
+	// Include ALL struct types from the file, not just those being processed
 	var structTypeNames []string
 	for _, typeInfo := range types {
 		structTypeNames = append(structTypeNames, typeInfo.Name)
+	}
+
+	// Also collect all struct types from typeDefs (including those not being processed)
+	debugf("TypeDefs map contains %d types", len(typeDefs))
+	for typeName, typeNode := range typeDefs {
+		if _, ok := typeNode.(*ast.StructType); ok {
+			debugf("Found struct type in typeDefs: %s", typeName)
+			// Check if this struct type is not already in the list
+			found := false
+			for _, existing := range structTypeNames {
+				if existing == typeName {
+					found = true
+					break
+				}
+			}
+			if !found {
+				structTypeNames = append(structTypeNames, typeName)
+				debugf("Added struct type from typeDefs: %s", typeName)
+			}
+		}
+	}
+
+	// Also collect imported struct types from field types
+	for _, typeInfo := range types {
+		for _, field := range typeInfo.Fields {
+			debugf("Processing field %s.%s: Type=%s, XDRType=%s", typeInfo.Name, field.Name, field.Type, field.XDRType)
+
+			// Check if this field type is an imported struct
+			if strings.Contains(field.Type, ".") {
+				// Extract the type name from package.Type format
+				parts := strings.Split(field.Type, ".")
+				if len(parts) == 2 {
+					importedTypeName := parts[1]
+					debugf("Found imported type: %s (from %s)", importedTypeName, field.Type)
+					// Check if this imported type is not already in the list
+					found := false
+					for _, existing := range structTypeNames {
+						if existing == importedTypeName {
+							found = true
+							break
+						}
+					}
+					if !found {
+						// For imported types, we assume they are structs if they're used with xdr:"struct"
+						// or if they appear in array contexts
+						if field.XDRType == "struct" || field.XDRType == "array" {
+							structTypeNames = append(structTypeNames, importedTypeName)
+							debugf("Added imported struct type: %s", importedTypeName)
+						}
+					}
+				}
+			}
+
+			// Also check for imported types in array element types
+			if field.XDRType == "array" && strings.Contains(field.Type, "[]") {
+				elementType := strings.TrimPrefix(field.Type, "[]")
+				debugf("Array field %s.%s has element type: %s", typeInfo.Name, field.Name, elementType)
+				if strings.Contains(elementType, ".") {
+					// Extract the type name from package.Type format
+					parts := strings.Split(elementType, ".")
+					if len(parts) == 2 {
+						importedElementTypeName := parts[1]
+						debugf("Found imported array element type: %s (from %s)", importedElementTypeName, elementType)
+						// Check if this imported element type is not already in the list
+						found := false
+						for _, existing := range structTypeNames {
+							if existing == importedElementTypeName {
+								found = true
+								break
+							}
+						}
+						if !found {
+							// For imported types used as array elements, we assume they are structs
+							structTypeNames = append(structTypeNames, importedElementTypeName)
+							debugf("Added imported array element struct type: %s", importedElementTypeName)
+						}
+					}
+				} else {
+					// This is a type from the same package (no dot), check if it's not in typeDefs
+					if _, exists := typeDefs[elementType]; !exists {
+						// Type not found in current file, assume it's a struct from another file in the package
+						found := false
+						for _, existing := range structTypeNames {
+							if existing == elementType {
+								found = true
+								break
+							}
+						}
+						if !found {
+							structTypeNames = append(structTypeNames, elementType)
+							debugf("Added cross-file struct type from same package: %s", elementType)
+						}
+					}
+				}
+			}
+		}
 	}
 
 	// For now, just print debug info and exit
@@ -1206,6 +1303,8 @@ func main() {
 		debugf("Type %s: IsDiscriminatedUnion=%v, UnionConfig=%+v",
 			typeInfo.Name, typeInfo.IsDiscriminatedUnion, typeInfo.UnionConfig)
 	}
+
+	debugf("Final structTypeNames list (%d types): %v", len(structTypeNames), structTypeNames)
 
 	// Create code generator
 	codeGen, err := NewCodeGenerator(structTypeNames)
