@@ -2,6 +2,7 @@ package xdr_test
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
 	"github.com/tempusfrangit/go-xdr"
@@ -349,6 +350,89 @@ func TestFixedArrayVsSliceHandling(t *testing.T) {
 	// Second decode should have original value, not modified value
 	if !bytes.Equal([]byte(decoded2.Session), originalSession) {
 		t.Errorf("Session not properly isolated: expected %v, got %v", originalSession, decoded2.Session)
+	}
+}
+
+// VoidOpCode represents operation codes for void-only union testing
+type VoidOpCode uint32
+
+const (
+	VoidOpNone VoidOpCode = 0
+	VoidOpPing VoidOpCode = 1
+)
+
+// VoidOperation tests void-only unions with default=nil
+type VoidOperation struct {
+	OpCode VoidOpCode `xdr:"key"`               // Operation code
+	Data   []byte     `xdr:"union,default=nil"` // No payload needed
+}
+
+func TestVoidOnlyUnion(t *testing.T) {
+	// Test void-only union with default=nil
+	original := &VoidOperation{
+		OpCode: VoidOpPing,
+		Data:   nil, // Should remain nil/empty for void-only unions
+	}
+
+	// Encode
+	buf := make([]byte, 1024)
+	enc := xdr.NewEncoder(buf)
+	err := original.Encode(enc)
+	if err != nil {
+		t.Fatalf("Encode failed: %v", err)
+	}
+
+	data := enc.Bytes()
+
+	// Decode
+	dec := xdr.NewDecoder(data)
+	var decoded VoidOperation
+	err = decoded.Decode(dec)
+	if err != nil {
+		t.Fatalf("Decode failed: %v", err)
+	}
+
+	// Verify that the discriminant is preserved
+	if decoded.OpCode != original.OpCode {
+		t.Errorf("OpCode mismatch: expected %v, got %v", original.OpCode, decoded.OpCode)
+	}
+
+	// For void-only unions, the Data field should remain empty
+	if len(decoded.Data) != 0 {
+		t.Errorf("Data should be empty for void-only union, got %v", decoded.Data)
+	}
+}
+
+func TestVoidUnionAllConstants(t *testing.T) {
+	// Test that all constants work with the void-only union
+	testCases := []VoidOpCode{VoidOpNone, VoidOpPing}
+
+	for _, opCode := range testCases {
+		t.Run(fmt.Sprintf("OpCode_%d", opCode), func(t *testing.T) {
+			original := &VoidOperation{
+				OpCode: opCode,
+				Data:   nil,
+			}
+
+			data, err := xdr.Marshal(original)
+			if err != nil {
+				t.Fatalf("Marshal failed for %v: %v", opCode, err)
+			}
+
+			var decoded VoidOperation
+			err = xdr.Unmarshal(data, &decoded)
+			if err != nil {
+				t.Fatalf("Unmarshal failed for %v: %v", opCode, err)
+			}
+
+			if decoded.OpCode != original.OpCode {
+				t.Errorf("OpCode mismatch for %v: expected %v, got %v", opCode, original.OpCode, decoded.OpCode)
+			}
+
+			if len(decoded.Data) != 0 {
+				t.Errorf("Data should be empty for void-only union %v, got %v", opCode, decoded.Data)
+			}
+		})
 	}
 }
 
