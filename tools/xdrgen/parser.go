@@ -637,7 +637,11 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 							// Key fields must be uint32 type or an alias of uint32
 							underlyingType, ok := typeAliases[fieldInfo.Type]
 							if fieldInfo.Type != "uint32" && (!ok || underlyingType != "uint32") {
-								log.Fatalf("Key field %s.%s must be uint32 or an alias of uint32, got %s", typeInfo.Name, fieldInfo.Name, fieldInfo.Type)
+								if !ok {
+									log.Fatalf("Key field %s.%s references type %s which is not defined in this file. For cross-file dependencies, process the entire package directory instead of individual files", typeInfo.Name, fieldInfo.Name, fieldInfo.Type)
+								} else {
+									log.Fatalf("Key field %s.%s must be uint32 or an alias of uint32, got %s (resolves to %s)", typeInfo.Name, fieldInfo.Name, fieldInfo.Type, underlyingType)
+								}
 							}
 							// Key fields should be treated as uint32 for encoding/decoding
 							fieldInfo.XDRType = "uint32"

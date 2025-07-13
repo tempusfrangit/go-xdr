@@ -93,14 +93,9 @@ func validateUnionConfiguration(types []TypeInfo, constants map[string]string, t
 		// Validate that the key field type is a uint32 alias
 		keyFieldNode, exists := typeDefs[keyField.Type]
 		if !exists {
-			var keys []string
-			for k := range typeDefs {
-				keys = append(keys, k)
-			}
-			fmt.Printf("validateUnionConfiguration: keyField.Type=%q, typeDefs keys: %v\n", keyField.Type, keys)
 			errors = append(errors, ValidationError{
 				Location: fmt.Sprintf("union=%s,key=%s", containerType, keyField.Name),
-				Message:  fmt.Sprintf("key field type %s must be a Go type, not found", keyField.Type),
+				Message:  fmt.Sprintf("key field type %s not found in current file(s). If this type is defined in another file, process the entire package instead of individual files", keyField.Type),
 			})
 			continue
 		}

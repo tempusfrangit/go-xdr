@@ -204,8 +204,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  Includes compile-time assertions that types implement xdr.Codec\n\n")
 		fmt.Fprintf(os.Stderr, "Examples:\n")
 		fmt.Fprintf(os.Stderr, "  xdrgen ./types/         # Generate for files with //go:generate in package\n")
-		fmt.Fprintf(os.Stderr, "  xdrgen types.go         # Generate for single file (any file)\n")
-		fmt.Fprintf(os.Stderr, "  xdrgen -s ./types/      # Generate silently (no output except errors)\n")
+		fmt.Fprintf(os.Stderr, "  xdrgen types.go         # Generate for single file (must be self-contained)\n")
+		fmt.Fprintf(os.Stderr, "  xdrgen -s ./types/      # Generate silently (no output except errors)\n\n")
+		fmt.Fprintf(os.Stderr, "Cross-file Dependencies:\n")
+		fmt.Fprintf(os.Stderr, "  Single file mode requires all types to be defined in the same file.\n")
+		fmt.Fprintf(os.Stderr, "  For cross-file dependencies (e.g., discriminant types in other files),\n")
+		fmt.Fprintf(os.Stderr, "  process the entire package directory instead of individual files.\n")
 		fmt.Fprintf(os.Stderr, "  go generate            # Use with go:generate directives\n\n")
 		fmt.Fprintf(os.Stderr, "Flags:\n")
 		flag.PrintDefaults()
@@ -258,13 +262,18 @@ func main() {
 
 // processFile handles the processing of a single file
 func processFile(inputFile string) {
-	// Check if we're in package mode (inputFile is in a directory with other files)
+	// Check if there are multiple Go files with xdrgen directives in the same directory
 	dir := filepath.Dir(inputFile)
-	if isDirectory(dir) {
-		// Package mode: gather union configurations across all files
+	files, err := discoverGoFiles(dir)
+	if err != nil {
+		log.Fatal("Error discovering Go files:", err)
+	}
+
+	if len(files) > 1 {
+		// Package mode: multiple files in directory, use package-level processing
 		processFileWithPackageContext(inputFile, dir)
 	} else {
-		// Single file mode: process independently
+		// Single file mode: only one file with xdrgen directive, process independently
 		processFileIndependent(inputFile)
 	}
 }
