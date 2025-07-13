@@ -967,7 +967,7 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 	// Validate that all container structs have union configs
 	for _, typeInfo := range types {
 		if typeInfo.IsDiscriminatedUnion && typeInfo.UnionConfig == nil {
-			log.Fatalf("Container struct %s must have a union comment", typeInfo.Name)
+			log.Fatalf("Container struct %s has key/union fields but no payload structs found. Add union comments (//xdr:union=%s,case=<constant>) to payload structs", typeInfo.Name, typeInfo.Name)
 		}
 	}
 
@@ -1000,6 +1000,38 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 	}
 
 	return types, misplacedUnionComments, typeDefs, nil
+}
+
+// parsePackage parses all files in a package to build complete union configurations
+func parsePackage(packageDir string) (map[string][]TypeInfo, map[string]map[string]ast.Node, error) {
+	// Discover all Go files in the package
+	files, err := discoverGoFiles(packageDir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error discovering Go files: %w", err)
+	}
+
+	if len(files) == 0 {
+		return nil, nil, fmt.Errorf("no files with //go:generate xdrgen found in %s", packageDir)
+	}
+
+	// Parse each file
+	fileTypes := make(map[string][]TypeInfo)
+	fileTypeDefs := make(map[string]map[string]ast.Node)
+
+	for _, file := range files {
+		types, _, typeDefs, err := parseFile(file)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error parsing %s: %w", file, err)
+		}
+
+		fileTypes[file] = types
+		fileTypeDefs[file] = typeDefs
+	}
+
+	// Build complete union configurations across all files
+	// TODO: Implement cross-file union configuration gathering
+
+	return fileTypes, fileTypeDefs, nil
 }
 
 // formatType converts an ast.Expr to a string representation
@@ -1065,6 +1097,59 @@ func detectUnionLoop(start string, unionConfigs map[string]*UnionConfig, visited
 	return false
 }
 
+// discoverGoFiles finds all .go files in a directory that have //go:generate xdrgen directives
+func discoverGoFiles(dir string) ([]string, error) {
+	var files []string
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		if !strings.HasSuffix(entry.Name(), ".go") {
+			continue
+		}
+
+		filePath := filepath.Join(dir, entry.Name())
+
+		// Check if file has //go:generate xdrgen directive
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			continue // Skip files we can't read
+		}
+
+		lines := strings.Split(string(content), "\n")
+		hasGenerate := false
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(strings.TrimPrefix(line, "//"))
+			if strings.HasPrefix(trimmed, "go:generate") && strings.Contains(trimmed, "xdrgen") {
+				hasGenerate = true
+				break
+			}
+		}
+
+		if hasGenerate {
+			files = append(files, filePath)
+		}
+	}
+
+	return files, nil
+}
+
+// isDirectory checks if the given path is a directory
+func isDirectory(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
+}
+
 func main() {
 	// Configure log to remove timestamps for cleaner output
 	log.SetFlags(0)
@@ -1078,10 +1163,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Generates Encode and Decode methods for Go structs with XDR struct tags.\n")
 		fmt.Fprintf(os.Stderr, "Supports the xdr.Codec interface for automatic XDR serialization/deserialization.\n\n")
 		fmt.Fprintf(os.Stderr, "Usage:\n")
-		fmt.Fprintf(os.Stderr, "  xdrgen [flags] <input.go>\n\n")
-		fmt.Fprintf(os.Stderr, "The generator processes structs that are explicitly opted in via go:generate directives:\n")
-		fmt.Fprintf(os.Stderr, "  //go:generate xdrgen $GOFILE              (process all XDR-tagged structs in file)\n")
-		fmt.Fprintf(os.Stderr, "  //go:generate xdrgen StructName           (process specific struct)\n")
+		fmt.Fprintf(os.Stderr, "  xdrgen [flags] <package-dir>     # Process package (files with //go:generate)\n")
+		fmt.Fprintf(os.Stderr, "  xdrgen [flags] <file.go>         # Process single file\n\n")
+		fmt.Fprintf(os.Stderr, "The generator processes files that are explicitly opted in via go:generate directives:\n")
+		fmt.Fprintf(os.Stderr, "  //go:generate xdrgen $GOPACKAGE              (process all XDR-tagged structs in package)\n")
+		fmt.Fprintf(os.Stderr, "  //go:generate xdrgen StructName              (process specific struct in package)\n")
 		fmt.Fprintf(os.Stderr, "  //go:generate ../../tools/bin/xdrgen StructName  (with path)\n\n")
 		fmt.Fprintf(os.Stderr, "Supported XDR struct tags:\n")
 		fmt.Fprintf(os.Stderr, "  `xdr:\"uint32\"`     - 32-bit unsigned integer\n")
@@ -1110,8 +1196,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  Creates <input>_xdr.go with generated Encode/Decode methods\n")
 		fmt.Fprintf(os.Stderr, "  Includes compile-time assertions that types implement xdr.Codec\n\n")
 		fmt.Fprintf(os.Stderr, "Examples:\n")
-		fmt.Fprintf(os.Stderr, "  xdrgen types.go         # Generate for all XDR-tagged structs\n")
-		fmt.Fprintf(os.Stderr, "  xdrgen -s types.go      # Generate silently (no output except errors)\n")
+		fmt.Fprintf(os.Stderr, "  xdrgen ./types/         # Generate for files with //go:generate in package\n")
+		fmt.Fprintf(os.Stderr, "  xdrgen types.go         # Generate for single file (any file)\n")
+		fmt.Fprintf(os.Stderr, "  xdrgen -s ./types/      # Generate silently (no output except errors)\n")
 		fmt.Fprintf(os.Stderr, "  go generate            # Use with go:generate directives\n\n")
 		fmt.Fprintf(os.Stderr, "Flags:\n")
 		flag.PrintDefaults()
@@ -1124,14 +1211,52 @@ func main() {
 		os.Exit(1)
 	}
 
-	inputFile := flag.Arg(0)
+	inputPath := flag.Arg(0)
 
 	// Convert to absolute path
-	inputFile, err := filepath.Abs(inputFile)
+	inputPath, err := filepath.Abs(inputPath)
 	if err != nil {
 		log.Fatal("Error getting absolute path:", err)
 	}
 
+	var filesToProcess []string
+
+	if isDirectory(inputPath) {
+		// Package mode: discover files with //go:generate xdrgen
+		files, err := discoverGoFiles(inputPath)
+		if err != nil {
+			log.Fatal("Error discovering Go files:", err)
+		}
+
+		if len(files) == 0 {
+			logf("No files with //go:generate xdrgen found in %s", inputPath)
+			return
+		}
+
+		filesToProcess = files
+		if !silent {
+			logf("Found %d files with //go:generate xdrgen in %s", len(files), inputPath)
+		}
+	} else {
+		// Single file mode: process the specified file
+		filesToProcess = []string{inputPath}
+	}
+
+	// Process each file
+	for _, inputFile := range filesToProcess {
+		processFile(inputFile)
+	}
+}
+
+// processFile handles the processing of a single file
+func processFile(inputFile string) {
+	// For now, we'll process each file independently
+	// TODO: Implement package-level union configuration gathering
+	processFileIndependent(inputFile)
+}
+
+// processFileIndependent processes a single file without package-level context
+func processFileIndependent(inputFile string) {
 	// Generate output file name, handling test files specially
 	var outputFile string
 	if strings.HasSuffix(inputFile, "_test.go") {
