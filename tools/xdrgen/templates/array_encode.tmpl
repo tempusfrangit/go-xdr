@@ -34,7 +34,14 @@ for _, elem := range v.{{.FieldName}} {
 	if err := enc.EncodeBytes(elem); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}
+	{{else if hasPrefix .ElementType "["}}{{/* Fixed-size byte arrays like [16]byte */}}
+	if err := enc.EncodeFixedBytes(elem[:]); err != nil {
+		return fmt.Errorf("failed to encode element: %w", err)
+	}
 	{{else}}
-	// TODO: handle other types
+	// Element type {{.ElementType}} - delegate to element's Encode method if available
+	if err := elem.Encode(enc); err != nil {
+		return fmt.Errorf("failed to encode element: %w", err)
+	}
 	{{end}}
 	}

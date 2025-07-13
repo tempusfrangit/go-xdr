@@ -142,8 +142,8 @@ func parsePackage(packageDir string) (map[string][]TypeInfo, map[string]map[stri
 		fileTypeDefs[file] = typeDefs
 	}
 
-	// Build complete union configurations across all files
-	// TODO: Implement cross-file union configuration gathering
+	// Cross-file union configuration gathering is already implemented above
+	// through the union comment collection and association logic
 
 	return fileTypes, fileTypeDefs, nil
 }

@@ -50,7 +50,14 @@ for i := range v.{{.FieldName}} {
 		return fmt.Errorf("failed to decode element: %w", err)
 	}
 	v.{{.FieldName}}[i] = val
+	{{else if hasPrefix .ElementType "["}}{{/* Fixed-size byte arrays like [16]byte */}}
+	if err := dec.DecodeFixedBytesInto(v.{{.FieldName}}[i][:]); err != nil {
+		return fmt.Errorf("failed to decode element: %w", err)
+	}
 	{{else}}
-	// TODO: handle other types
+	// Element type {{.ElementType}} - delegate to element's Decode method if available
+	if err := v.{{.FieldName}}[i].Decode(dec); err != nil {
+		return fmt.Errorf("failed to decode element: %w", err)
+	}
 	{{end}}
 	}

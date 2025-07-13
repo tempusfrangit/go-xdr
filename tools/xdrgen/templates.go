@@ -387,6 +387,13 @@ func (cg *CodeGenerator) generateBasicEncodeCode(field FieldInfo) (string, error
 		return cg.tm.ExecuteTemplate("field_encode_alias", data)
 	}
 
+	// Handle fixed-size byte arrays specially (outside of alias handling)
+	if strings.HasPrefix(field.XDRType, "fixed:") {
+		return fmt.Sprintf(`if err := enc.EncodeFixedBytes(v.%s[:]); err != nil {
+	return fmt.Errorf("failed to encode %s: %%w", err)
+}`, field.Name, field.Name), nil
+	}
+
 	method := cg.getEncodeMethod(field.XDRType)
 	if method == "" {
 		return "", fmt.Errorf("unsupported XDR type for encoding: %s", field.XDRType)
@@ -468,6 +475,13 @@ func (cg *CodeGenerator) generateBasicDecodeCode(field FieldInfo) (string, error
 			DecodeMethod:   decodeMethod,
 		}
 		return cg.tm.ExecuteTemplate("field_decode_alias", data)
+	}
+
+	// Handle fixed-size byte arrays specially (outside of alias handling)
+	if strings.HasPrefix(field.XDRType, "fixed:") {
+		return fmt.Sprintf(`if err := dec.DecodeFixedBytesInto(v.%s[:]); err != nil {
+	return fmt.Errorf("failed to decode %s: %%w", err)
+}`, field.Name, field.Name), nil
 	}
 
 	method := cg.getDecodeMethod(field.XDRType)
