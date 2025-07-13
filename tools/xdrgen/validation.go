@@ -118,8 +118,9 @@ func validateUnionConfiguration(types []TypeInfo, constants map[string]string, t
 			continue
 		}
 
-		// Collect constants of this discriminant type
-		typedConstants := collectTypedConstants(file, keyField.Type)
+		// Use aggregated constants for package-level processing
+		// In package-level processing, constants parameter contains all constants from all files
+		typedConstants := constants
 		if len(typedConstants) == 0 {
 			errors = append(errors, ValidationError{
 				Location: fmt.Sprintf("union=%s,key=%s", containerType, keyField.Name),

@@ -487,7 +487,7 @@ func processFileWithPackageUnionContext(inputFile string, allUnionComments map[s
 	}
 
 	debugf("Processing input file: %s", inputFile)
-	types, _, _, err := parseFile(inputFile)
+	types, _, _, err := parseFileWithPackageTypeDefs(inputFile, allTypeDefs, allConstants)
 	if err != nil {
 		log.Fatal("Error parsing file:", err)
 	}

@@ -386,8 +386,18 @@ func discoverGoFiles(dir string) ([]string, error) {
 	return files, nil
 }
 
+// parseFileWithPackageTypeDefs parses a Go file with package-level type definitions
+func parseFileWithPackageTypeDefs(filename string, packageTypeDefs map[string]ast.Node, packageConstants map[string]string) ([]TypeInfo, []ValidationError, map[string]ast.Node, error) {
+	return parseFileInternal(filename, packageTypeDefs, packageConstants)
+}
+
 // parseFile parses a Go file and extracts structs that have go:generate xdrgen directives
 func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.Node, error) {
+	return parseFileInternal(filename, nil, nil)
+}
+
+// parseFileInternal is the internal implementation that can optionally use package-level type definitions
+func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, packageConstants map[string]string) ([]TypeInfo, []ValidationError, map[string]ast.Node, error) {
 	fset := token.NewFileSet()
 
 	fileBytes, err := os.ReadFile(filename)
@@ -462,6 +472,18 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 		}
 		return true
 	})
+
+	// If package-level type definitions are provided, include them
+	if packageTypeDefs != nil {
+		for typeName, typeNode := range packageTypeDefs {
+			if _, exists := typeAliases[typeName]; !exists {
+				if typeExpr, ok := typeNode.(ast.Expr); ok {
+					underlyingType := formatType(typeExpr)
+					typeAliases[typeName] = underlyingType
+				}
+			}
+		}
+	}
 
 	// Build a map of struct names that have go:generate directives
 	structsToGenerate := make(map[string]bool)
@@ -714,7 +736,14 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 			}
 
 			// Collect all constants of this discriminant type
-			typedConstants := collectTypedConstants(file, keyField.Type)
+			var typedConstants map[string]string
+			if packageConstants != nil {
+				// Use package-level constants for cross-file processing
+				typedConstants = packageConstants
+			} else {
+				// Use file-level constants for single-file processing
+				typedConstants = collectTypedConstants(file, keyField.Type)
+			}
 
 			// Compute void cases: all constants not mapped to payload structs
 			for constantName := range typedConstants {
