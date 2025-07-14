@@ -419,6 +419,24 @@ func resolveAliasType(goType string, typeAliases map[string]string) string {
 	seen := make(map[string]bool)
 	current := goType
 
+	// Handle slice types: []TypeName -> []ResolvedType
+	if strings.HasPrefix(current, "[]") {
+		elementType := strings.TrimPrefix(current, "[]")
+		resolvedElement := resolveAliasType(elementType, typeAliases)
+		return "[]" + resolvedElement
+	}
+
+	// Handle fixed array types: [N]TypeName -> [N]ResolvedType
+	if strings.HasPrefix(current, "[") && strings.Contains(current, "]") {
+		closeBracket := strings.Index(current, "]")
+		if closeBracket > 0 {
+			prefix := current[:closeBracket+1] // [N]
+			elementType := current[closeBracket+1:] // TypeName
+			resolvedElement := resolveAliasType(elementType, typeAliases)
+			return prefix + resolvedElement
+		}
+	}
+
 	for {
 		if seen[current] {
 			// Cycle detected, return struct
@@ -779,9 +797,11 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 					}
 
 					for _, name := range field.Names {
+						fieldType := formatType(field.Type)
 						fieldInfo := FieldInfo{
-							Name: name.Name,
-							Type: formatType(field.Type),
+							Name:         name.Name,
+							Type:         fieldType,
+							ResolvedType: resolveAliasType(fieldType, typeAliases),
 						}
 
 						// Parse XDR tag if present

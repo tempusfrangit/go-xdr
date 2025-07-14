@@ -6,39 +6,39 @@ for _, elem := range v.{{.FieldName}} {
 	if err := elem.Encode(enc); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}
-	{{else if eq .ElementType "string"}}
-	if err := enc.EncodeString(elem); err != nil {
+	{{else if eq .ResolvedElementType "string"}}
+	if err := enc.EncodeString({{if ne .ElementType .ResolvedElementType}}string(elem){{else}}elem{{end}}); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}
-	{{else if eq .ElementType "uint32"}}
-	if err := enc.EncodeUint32(elem); err != nil {
+	{{else if eq .ResolvedElementType "uint32"}}
+	if err := enc.EncodeUint32({{if ne .ElementType .ResolvedElementType}}uint32(elem){{else}}elem{{end}}); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}
-	{{else if eq .ElementType "uint64"}}
-	if err := enc.EncodeUint64(elem); err != nil {
+	{{else if eq .ResolvedElementType "uint64"}}
+	if err := enc.EncodeUint64({{if ne .ElementType .ResolvedElementType}}uint64(elem){{else}}elem{{end}}); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}
-	{{else if eq .ElementType "int32"}}
-	if err := enc.EncodeInt32(elem); err != nil {
+	{{else if eq .ResolvedElementType "int32"}}
+	if err := enc.EncodeInt32({{if ne .ElementType .ResolvedElementType}}int32(elem){{else}}elem{{end}}); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}
-	{{else if eq .ElementType "int64"}}
-	if err := enc.EncodeInt64(elem); err != nil {
+	{{else if eq .ResolvedElementType "int64"}}
+	if err := enc.EncodeInt64({{if ne .ElementType .ResolvedElementType}}int64(elem){{else}}elem{{end}}); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}
-	{{else if eq .ElementType "bool"}}
-	if err := enc.EncodeBool(elem); err != nil {
+	{{else if eq .ResolvedElementType "bool"}}
+	if err := enc.EncodeBool({{if ne .ElementType .ResolvedElementType}}bool(elem){{else}}elem{{end}}); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}
-	{{else if eq .ElementType "byte"}}
-	if err := enc.EncodeByte(elem); err != nil {
+	{{else if eq .ResolvedElementType "byte"}}
+	if err := enc.EncodeByte({{if ne .ElementType .ResolvedElementType}}byte(elem){{else}}elem{{end}}); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}
-	{{else if eq .ElementType "[]byte"}}
-	if err := enc.EncodeBytes(elem); err != nil {
+	{{else if eq .ResolvedElementType "[]byte"}}
+	if err := enc.EncodeBytes({{if ne .ElementType .ResolvedElementType}}[]byte(elem){{else}}elem{{end}}); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}
-	{{else if hasPrefix .ElementType "["}}{{/* Fixed-size byte arrays like [16]byte */}}
+	{{else if hasPrefix .ResolvedElementType "["}}{{/* Fixed-size byte arrays like [16]byte */}}
 	if err := enc.EncodeFixedBytes(elem[:]); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}

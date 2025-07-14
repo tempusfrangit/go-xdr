@@ -4,13 +4,14 @@ import "fmt"
 
 // FieldInfo represents a struct field with XDR encoding information
 type FieldInfo struct {
-	Name        string
-	Type        string
-	XDRType     string
-	Tag         string
-	IsKey       bool   // true if this field is a discriminated union key
-	IsUnion     bool   // true if this field is a discriminated union payload
-	DefaultType string // default type from union tag (empty, "nil", or struct name)
+	Name         string
+	Type         string // Original Go type from source (e.g., "SessionID")
+	ResolvedType string // Resolved underlying type (e.g., "[]byte")
+	XDRType      string
+	Tag          string
+	IsKey        bool   // true if this field is a discriminated union key
+	IsUnion      bool   // true if this field is a discriminated union payload
+	DefaultType  string // default type from union tag (empty, "nil", or struct name)
 }
 
 // TypeInfo represents a struct that needs XDR generation

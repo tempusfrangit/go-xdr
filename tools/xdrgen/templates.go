@@ -29,16 +29,17 @@ type TypeData struct {
 
 // FieldData represents data for field templates
 type FieldData struct {
-	FieldName         string
-	FieldType         string
-	ElementType       string
-	ElementIsStruct   bool
-	EncodeCode        string
-	DecodeCode        string
-	Method            string
-	VarName           string
-	DiscriminantField string
-	Cases             []UnionCaseData
+	FieldName           string
+	FieldType           string
+	ElementType         string
+	ResolvedElementType string // Resolved type for array elements (e.g., NFSStatus -> uint32)
+	ElementIsStruct     bool
+	EncodeCode          string
+	DecodeCode          string
+	Method              string
+	VarName             string
+	DiscriminantField   string
+	Cases               []UnionCaseData
 	HasDefaultCase    bool
 	// Alias-specific fields
 	UnderlyingType string
@@ -342,7 +343,8 @@ func (cg *CodeGenerator) GenerateAssertion(typeName string) (string, error) {
 // generateBasicEncodeCode generates basic encode code for a field
 func (cg *CodeGenerator) generateBasicEncodeCode(field FieldInfo) (string, error) {
 	// Special case: []byte with xdr:"bytes" should use bytes encoding, not array encoding
-	if field.Type == "[]byte" && field.XDRType == "bytes" {
+	// Check both Type and ResolvedType to handle aliases like SessionID which is []byte
+	if (field.Type == "[]byte" || field.ResolvedType == "[]byte") && field.XDRType == "bytes" {
 		method := cg.getEncodeMethod(field.XDRType)
 		if method == "" {
 			return "", fmt.Errorf("unsupported XDR type for encoding: %s", field.XDRType)
@@ -400,10 +402,18 @@ func (cg *CodeGenerator) generateBasicEncodeCode(field FieldInfo) (string, error
 		// Field type is an alias, need to convert to underlying type
 		// Special case: alias to fixed array that maps to []byte needs slicing
 		if expectedType == "[]byte" {
-			// Check if the alias resolves to a fixed byte array
+			// Check if the alias resolves to a fixed byte array vs slice
 			// This handles cases like: type Hash [16]byte -> needs v.Hash[:]
-			typeConversion = ""
-			typeConversionEnd = "[:]"
+			// But NOT: type SessionID []byte -> should use v.Session directly
+			if strings.HasPrefix(field.ResolvedType, "[") && strings.Contains(field.ResolvedType, "]byte") {
+				// Fixed array alias: type Hash [16]byte
+				typeConversion = ""
+				typeConversionEnd = "[:]"
+			} else {
+				// Slice alias: type SessionID []byte
+				typeConversion = expectedType + "("
+				typeConversionEnd = ")"
+			}
 		} else {
 			typeConversion = expectedType + "("
 			typeConversionEnd = ")"
@@ -423,12 +433,20 @@ func (cg *CodeGenerator) generateBasicEncodeCode(field FieldInfo) (string, error
 func (cg *CodeGenerator) generateVariableArrayEncodeCode(field FieldInfo) (string, error) {
 	elementType := strings.TrimPrefix(field.Type, "[]")
 	elementIsStruct := cg.resolveAliasToStruct(elementType)
+	
+	// For arrays, we need to resolve the element type to determine the encoding method
+	// Extract resolved element type from the field's ResolvedType 
+	resolvedElementType := elementType // Default to original type
+	if strings.HasPrefix(field.ResolvedType, "[]") {
+		resolvedElementType = strings.TrimPrefix(field.ResolvedType, "[]")
+	}
 
 	data := FieldData{
-		FieldName:       field.Name,
-		FieldType:       field.Type,
-		ElementType:     elementType,
-		ElementIsStruct: elementIsStruct,
+		FieldName:           field.Name,
+		FieldType:           field.Type,
+		ElementType:         elementType,
+		ResolvedElementType: resolvedElementType,
+		ElementIsStruct:     elementIsStruct,
 		// Use the XDR tag as the element encoding type
 	}
 	return cg.tm.ExecuteTemplate("array_encode", data)
@@ -541,12 +559,20 @@ func (cg *CodeGenerator) generateBasicDecodeCode(field FieldInfo) (string, error
 func (cg *CodeGenerator) generateVariableArrayDecodeCode(field FieldInfo) (string, error) {
 	elementType := strings.TrimPrefix(field.Type, "[]")
 	elementIsStruct := cg.resolveAliasToStruct(elementType)
+	
+	// For arrays, we need to resolve the element type to determine the decoding method
+	// Extract resolved element type from the field's ResolvedType 
+	resolvedElementType := elementType // Default to original type
+	if strings.HasPrefix(field.ResolvedType, "[]") {
+		resolvedElementType = strings.TrimPrefix(field.ResolvedType, "[]")
+	}
 
 	data := FieldData{
-		FieldName:       field.Name,
-		FieldType:       field.Type,
-		ElementType:     elementType,
-		ElementIsStruct: elementIsStruct,
+		FieldName:           field.Name,
+		FieldType:           field.Type,
+		ElementType:         elementType,
+		ResolvedElementType: resolvedElementType,
+		ElementIsStruct:     elementIsStruct,
 		// Use the XDR tag as the element encoding type
 	}
 	return cg.tm.ExecuteTemplate("array_decode", data)

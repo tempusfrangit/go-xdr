@@ -8,54 +8,54 @@ for i := range v.{{.FieldName}} {
 	if err := v.{{.FieldName}}[i].Decode(dec); err != nil {
 		return fmt.Errorf("failed to decode element: %w", err)
 	}
-	{{else if eq .ElementType "string"}}
+	{{else if eq .ResolvedElementType "string"}}
 	val, err := dec.DecodeString()
 	if err != nil {
 		return fmt.Errorf("failed to decode element: %w", err)
 	}
-	v.{{.FieldName}}[i] = val
-	{{else if eq .ElementType "uint32"}}
+	v.{{.FieldName}}[i] = {{if ne .ElementType .ResolvedElementType}}{{.ElementType}}(val){{else}}val{{end}}
+	{{else if eq .ResolvedElementType "uint32"}}
 	val, err := dec.DecodeUint32()
 	if err != nil {
 		return fmt.Errorf("failed to decode element: %w", err)
 	}
-	v.{{.FieldName}}[i] = val
-	{{else if eq .ElementType "uint64"}}
+	v.{{.FieldName}}[i] = {{if ne .ElementType .ResolvedElementType}}{{.ElementType}}(val){{else}}val{{end}}
+	{{else if eq .ResolvedElementType "uint64"}}
 	val, err := dec.DecodeUint64()
 	if err != nil {
 		return fmt.Errorf("failed to decode element: %w", err)
 	}
-	v.{{.FieldName}}[i] = val
-	{{else if eq .ElementType "int32"}}
+	v.{{.FieldName}}[i] = {{if ne .ElementType .ResolvedElementType}}{{.ElementType}}(val){{else}}val{{end}}
+	{{else if eq .ResolvedElementType "int32"}}
 	val, err := dec.DecodeInt32()
-		if err != nil {
+	if err != nil {
 		return fmt.Errorf("failed to decode element: %w", err)
-		}
-	v.{{.FieldName}}[i] = val
-	{{else if eq .ElementType "int64"}}
+	}
+	v.{{.FieldName}}[i] = {{if ne .ElementType .ResolvedElementType}}{{.ElementType}}(val){{else}}val{{end}}
+	{{else if eq .ResolvedElementType "int64"}}
 	val, err := dec.DecodeInt64()
-		if err != nil {
+	if err != nil {
 		return fmt.Errorf("failed to decode element: %w", err)
-		}
-	v.{{.FieldName}}[i] = val
-	{{else if eq .ElementType "bool"}}
+	}
+	v.{{.FieldName}}[i] = {{if ne .ElementType .ResolvedElementType}}{{.ElementType}}(val){{else}}val{{end}}
+	{{else if eq .ResolvedElementType "bool"}}
 	val, err := dec.DecodeBool()
-		if err != nil {
+	if err != nil {
 		return fmt.Errorf("failed to decode element: %w", err)
-		}
-	v.{{.FieldName}}[i] = val
-	{{else if eq .ElementType "byte"}}
+	}
+	v.{{.FieldName}}[i] = {{if ne .ElementType .ResolvedElementType}}{{.ElementType}}(val){{else}}val{{end}}
+	{{else if eq .ResolvedElementType "byte"}}
 	val, err := dec.DecodeByte()
 	if err != nil {
 		return fmt.Errorf("failed to decode element: %w", err)
 	}
-	v.{{.FieldName}}[i] = val
-	{{else if eq .ElementType "[]byte"}}
+	v.{{.FieldName}}[i] = {{if ne .ElementType .ResolvedElementType}}{{.ElementType}}(val){{else}}val{{end}}
+	{{else if eq .ResolvedElementType "[]byte"}}
 	val, err := dec.DecodeBytes()
 	if err != nil {
 		return fmt.Errorf("failed to decode element: %w", err)
 	}
-	v.{{.FieldName}}[i] = val
+	v.{{.FieldName}}[i] = {{if ne .ElementType .ResolvedElementType}}{{.ElementType}}(val){{else}}val{{end}}
 	{{else if hasPrefix .ElementType "["}}{{/* Fixed-size byte arrays like [16]byte */}}
 	if err := dec.DecodeFixedBytesInto(v.{{.FieldName}}[i][:]); err != nil {
 		return fmt.Errorf("failed to decode element: %w", err)
