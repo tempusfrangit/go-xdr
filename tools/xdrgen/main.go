@@ -444,7 +444,7 @@ func processFileWithPackageUnionContext(inputFile string, allUnionComments map[s
 	// Package-level validation is done before individual file processing
 
 	if len(types) == 0 {
-		logf("No types with XDR tags found in %s", inputFile)
+		logf("No types requiring XDR generation found in %s", inputFile)
 		return
 	}
 
