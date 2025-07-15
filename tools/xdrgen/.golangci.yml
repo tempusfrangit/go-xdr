@@ -1,0 +1,48 @@
+version: "2"
+linters:
+  enable:
+    - bodyclose
+    - dogsled
+    - gocheckcompilerdirectives
+    - gocritic
+    - misspell
+    - revive
+    - testifylint
+    - unconvert
+  settings:
+    misspell:
+      locale: US
+    revive:
+      confidence: 0.8
+      severity: warning
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: defer
+        - name: early-return
+        - name: empty-block
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: errorf
+        - name: exported
+        - name: increment-decrement
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: superfluous-else
+        - name: unreachable-code
+        - name: var-declaration
+        - name: var-naming
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - revive
+        path: _test\.go$

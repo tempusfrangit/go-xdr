@@ -1,5 +1,4 @@
-if v.{{.FieldName}} != nil {
-			if err := v.{{.FieldName}}.Encode(enc); err != nil {
-				return fmt.Errorf("failed to encode {{.FieldName}}: %w", err)
-			}
+// Encode {{.PayloadTypeName}} payload bytes
+		if err := enc.EncodeBytes(v.{{.FieldName}}); err != nil {
+			return fmt.Errorf("failed to encode payload bytes: %w", err)
 		}

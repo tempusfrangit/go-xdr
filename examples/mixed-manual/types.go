@@ -75,9 +75,9 @@ func (c *CustomMessage) Decode(dec *xdr.Decoder) error {
 
 // MixedStruct combines auto-generated and manual XDR
 type MixedStruct struct {
-	AutoField   string        `xdr:"string"` // Auto-generated
-	ManualField []uint32      `xdr:"-"`      // Manual implementation
-	Header      MessageHeader `xdr:"struct"` // Auto-generated
+	AutoField   string        // Auto-generated
+	ManualField []uint32      `xdr:"-"` // Manual implementation
+	Header      MessageHeader // Auto-generated
 }
 
 // Encode implements mixed XDR marshaling

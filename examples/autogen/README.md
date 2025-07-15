@@ -1,30 +1,30 @@
 # Auto-Generated XDR Example
 
-This example demonstrates automatic XDR method generation using struct tags and the `xdrgen` tool.
+This example demonstrates automatic XDR method generation using the `xdrgen` tool with auto-detection.
 
 ## What it shows
 
-- XDR struct tags for automatic code generation
-- Generated `MarshalXDR` and `UnmarshalXDR` methods
+- Auto-detection of XDR types from Go types
+- Generated `Encode` and `Decode` methods
 - Nested struct encoding with arrays and slices
-- Complex data structures with minimal boilerplate
+- Complex data structures with zero boilerplate
 
 ## Key concepts
 
-- **XDR Tags**: Struct field tags that specify XDR encoding types
+- **`// +xdr:generate` directive**: Mark structs for XDR code generation
+- **Auto-Detection**: XDR types automatically inferred from Go types
 - **Code Generation**: `go generate` integration with `xdrgen`
 - **Codec Interface**: Auto-generated types implement `xdr.Codec`
-- **Type Safety**: Compile-time validation of XDR-tagged structures
+- **Type Safety**: Compile-time validation of structures
 
-## XDR Tags
+## Auto-Detected Types
 
-- `xdr:"uint32"` - 32-bit unsigned integer
-- `xdr:"uint64"` - 64-bit unsigned integer  
-- `xdr:"string"` - Variable-length string
-- `xdr:"bytes"` - Variable-length byte array
-- `xdr:"bool"` - Boolean value
-- `xdr:"array"` - Variable-length array/slice
-- `xdr:"struct"` - Nested structure
+- `uint32`, `uint64`, `int32`, `int64` - Integer types
+- `string` - Variable-length string
+- `[]byte` - Variable-length byte array
+- `bool` - Boolean value
+- `[]Type`, `[N]Type` - Arrays and slices
+- `CustomStruct` - Nested structures
 
 ## Running the example
 

@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"fmt"
+	"go/ast"
 	"strings"
 	"text/template"
 	"time"
@@ -40,7 +41,7 @@ type FieldData struct {
 	VarName             string
 	DiscriminantField   string
 	Cases               []UnionCaseData
-	HasDefaultCase    bool
+	HasDefaultCase      bool
 	// Alias-specific fields
 	UnderlyingType string
 	AliasType      string
@@ -172,10 +173,18 @@ func NewTemplateManager() (*TemplateManager, error) {
 				DiscriminantField: "TestKey",
 				Cases:             []UnionCaseData{},
 			}
-		case "union_case_bytes_encode", "union_case_bytes_decode", "union_case_struct_encode", "union_case_struct_decode":
+		case "union_case_bytes_encode", "union_case_bytes_decode":
 			dummy = FieldData{
 				FieldName: "TestField",
 				FieldType: "TestStruct",
+			}
+		case "union_case_struct_encode", "union_case_struct_decode":
+			dummy = struct {
+				PayloadTypeName string
+				FieldName       string
+			}{
+				PayloadTypeName: "TestPayload",
+				FieldName:       "TestField",
 			}
 		case "union_case_void":
 			dummy = nil
@@ -189,6 +198,28 @@ func NewTemplateManager() (*TemplateManager, error) {
 		case "fixed_bytes_encode", "fixed_bytes_decode":
 			dummy = FieldData{
 				FieldName: "TestBytes",
+			}
+		case "payload_to_union":
+			dummy = struct {
+				PayloadTypeName string
+				UnionTypeName   string
+				KeyField        string
+				PayloadField    string
+				Discriminant    string
+			}{
+				PayloadTypeName: "TestPayload",
+				UnionTypeName:   "TestUnion",
+				KeyField:        "Type",
+				PayloadField:    "Payload",
+				Discriminant:    "TestConstant",
+			}
+		case "payload_encode_to_union":
+			dummy = struct {
+				PayloadTypeName string
+				Discriminant    string
+			}{
+				PayloadTypeName: "TestPayload",
+				Discriminant:    "TestConstant",
 			}
 		default:
 			dummy = struct{}{}
@@ -338,6 +369,52 @@ func (cg *CodeGenerator) GenerateAssertion(typeName string) (string, error) {
 	return cg.tm.ExecuteTemplate("assertion", data)
 }
 
+// GeneratePayloadToUnion generates ToUnion method for payload types
+func (cg *CodeGenerator) GeneratePayloadToUnion(typeInfo TypeInfo, typeDefs map[string]ast.Node) (string, error) {
+	if typeInfo.PayloadConfig == nil {
+		return "", fmt.Errorf("payload config is nil for type %s", typeInfo.Name)
+	}
+
+	// Find the actual union type's key and payload fields from the AST
+	keyField, payloadField := getUnionFieldNames(typeInfo.PayloadConfig.UnionType, typeDefs)
+	if keyField == "" || payloadField == "" {
+		return "", fmt.Errorf("failed to find key field (%s) or payload field (%s) for union type %s", keyField, payloadField, typeInfo.PayloadConfig.UnionType)
+	}
+
+	data := struct {
+		PayloadTypeName string
+		UnionTypeName   string
+		KeyField        string
+		PayloadField    string
+		Discriminant    string
+	}{
+		PayloadTypeName: typeInfo.Name,
+		UnionTypeName:   typeInfo.PayloadConfig.UnionType,
+		KeyField:        keyField,
+		PayloadField:    payloadField,
+		Discriminant:    typeInfo.PayloadConfig.Discriminant,
+	}
+
+	return cg.tm.ExecuteTemplate("payload_to_union", data)
+}
+
+// GeneratePayloadEncodeToUnion generates EncodeToUnion method for payload types
+func (cg *CodeGenerator) GeneratePayloadEncodeToUnion(typeInfo TypeInfo) (string, error) {
+	if typeInfo.PayloadConfig == nil {
+		return "", fmt.Errorf("payload config is nil for type %s", typeInfo.Name)
+	}
+
+	data := struct {
+		PayloadTypeName string
+		Discriminant    string
+	}{
+		PayloadTypeName: typeInfo.Name,
+		Discriminant:    typeInfo.PayloadConfig.Discriminant,
+	}
+
+	return cg.tm.ExecuteTemplate("payload_encode_to_union", data)
+}
+
 // Helper functions for generating field-specific code
 
 // generateBasicEncodeCode generates basic encode code for a field
@@ -433,9 +510,9 @@ func (cg *CodeGenerator) generateBasicEncodeCode(field FieldInfo) (string, error
 func (cg *CodeGenerator) generateVariableArrayEncodeCode(field FieldInfo) (string, error) {
 	elementType := strings.TrimPrefix(field.Type, "[]")
 	elementIsStruct := cg.resolveAliasToStruct(elementType)
-	
+
 	// For arrays, we need to resolve the element type to determine the encoding method
-	// Extract resolved element type from the field's ResolvedType 
+	// Extract resolved element type from the field's ResolvedType
 	resolvedElementType := elementType // Default to original type
 	if strings.HasPrefix(field.ResolvedType, "[]") {
 		resolvedElementType = strings.TrimPrefix(field.ResolvedType, "[]")
@@ -559,9 +636,9 @@ func (cg *CodeGenerator) generateBasicDecodeCode(field FieldInfo) (string, error
 func (cg *CodeGenerator) generateVariableArrayDecodeCode(field FieldInfo) (string, error) {
 	elementType := strings.TrimPrefix(field.Type, "[]")
 	elementIsStruct := cg.resolveAliasToStruct(elementType)
-	
+
 	// For arrays, we need to resolve the element type to determine the decoding method
-	// Extract resolved element type from the field's ResolvedType 
+	// Extract resolved element type from the field's ResolvedType
 	resolvedElementType := elementType // Default to original type
 	if strings.HasPrefix(field.ResolvedType, "[]") {
 		resolvedElementType = strings.TrimPrefix(field.ResolvedType, "[]")

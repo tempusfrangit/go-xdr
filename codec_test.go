@@ -2,6 +2,9 @@ package xdr
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestType implements the Codec interface for testing
@@ -47,27 +50,17 @@ func TestCodecInterface(t *testing.T) {
 
 	// Test Marshal
 	data, err := Marshal(original)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
-	if len(data) == 0 {
-		t.Fatal("Marshal returned empty data")
-	}
+	require.NoError(t, err, "Marshal failed")
+	assert.NotEmpty(t, data, "Marshal returned empty data")
 
 	// Test Unmarshal
 	var decoded TestType
 	err = Unmarshal(data, &decoded)
-	if err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
-	}
+	require.NoError(t, err, "Unmarshal failed")
 
 	// Verify round-trip
-	if original.ID != decoded.ID {
-		t.Errorf("ID mismatch: expected %d, got %d", original.ID, decoded.ID)
-	}
-	if original.Name != decoded.Name {
-		t.Errorf("Name mismatch: expected %s, got %s", original.Name, decoded.Name)
-	}
+	assert.Equal(t, original.ID, decoded.ID, "ID mismatch")
+	assert.Equal(t, original.Name, decoded.Name, "Name mismatch")
 }
 
 func TestCodecMarshalError(t *testing.T) {
@@ -77,12 +70,8 @@ func TestCodecMarshalError(t *testing.T) {
 	}
 
 	_, err := Marshal(badType)
-	if err == nil {
-		t.Error("Expected error for oversized data, got nil")
-	}
-	if err.Error() != "XDR encoding failed: buffer too small" {
-		t.Errorf("Expected 'XDR encoding failed: buffer too small', got %s", err.Error())
-	}
+	require.Error(t, err, "Expected error for oversized data")
+	assert.Equal(t, "XDR encoding failed: buffer too small", err.Error(), "Unexpected error message")
 }
 
 func TestCodecUnmarshalError(t *testing.T) {
@@ -91,12 +80,8 @@ func TestCodecUnmarshalError(t *testing.T) {
 
 	var testType TestType
 	err := Unmarshal(badData, &testType)
-	if err == nil {
-		t.Error("Expected error for malformed data, got nil")
-	}
-	if err.Error() != "XDR decoding failed: unexpected end of data" {
-		t.Errorf("Expected 'XDR decoding failed: unexpected end of data', got %s", err.Error())
-	}
+	require.Error(t, err, "Expected error for malformed data")
+	assert.Equal(t, "XDR decoding failed: unexpected end of data", err.Error(), "Unexpected error message")
 }
 
 func TestMarshalRaw(t *testing.T) {
@@ -112,37 +97,23 @@ func TestMarshalRaw(t *testing.T) {
 
 	// Test MarshalRaw
 	wrappedData, err := MarshalRaw(originalData)
-	if err != nil {
-		t.Fatalf("MarshalRaw failed: %v", err)
-	}
+	require.NoError(t, err, "MarshalRaw failed")
 
-	if len(wrappedData) != len(originalData) {
-		t.Errorf("Length mismatch: expected %d, got %d", len(originalData), len(wrappedData))
-	}
+	assert.Len(t, wrappedData, len(originalData), "Length mismatch")
 
 	// Verify contents are identical
-	for i := range originalData {
-		if originalData[i] != wrappedData[i] {
-			t.Errorf("Data mismatch at index %d: expected %d, got %d", i, originalData[i], wrappedData[i])
-		}
-	}
+	assert.Equal(t, originalData, wrappedData, "Data contents should be identical")
 
 	// Verify it's a copy, not the same slice
 	if len(originalData) > 0 && len(wrappedData) > 0 {
-		if &originalData[0] == &wrappedData[0] {
-			t.Error("MarshalRaw should return a copy, not the same slice")
-		}
+		assert.NotSame(t, &originalData[0], &wrappedData[0], "MarshalRaw should return a copy, not the same slice")
 	}
 }
 
 func TestMarshalRawNil(t *testing.T) {
 	_, err := MarshalRaw(nil)
-	if err == nil {
-		t.Error("Expected error for nil data, got nil")
-	}
-	if err.Error() != "data cannot be nil" {
-		t.Errorf("Expected 'data cannot be nil', got %s", err.Error())
-	}
+	require.Error(t, err, "Expected error for nil data")
+	assert.Equal(t, "data cannot be nil", err.Error(), "Unexpected error message")
 }
 
 func TestMarshalRawSparseExample(t *testing.T) {
@@ -161,15 +132,11 @@ func TestMarshalRawSparseExample(t *testing.T) {
 	// Encode values conditionally based on mask
 	if mask&(1<<0) != 0 {
 		err = enc.EncodeUint32(100)
-		if err != nil {
-			t.Fatalf("EncodeUint32 failed: %v", err)
-		}
+		require.NoError(t, err, "EncodeUint32 failed")
 	}
 	if mask&(1<<1) != 0 {
 		err = enc.EncodeUint64(200)
-		if err != nil {
-			t.Fatalf("EncodeUint64 failed: %v", err)
-		}
+		require.NoError(t, err, "EncodeUint64 failed")
 	}
 
 	sparseData := make([]byte, len(enc.Bytes()))
@@ -177,36 +144,22 @@ func TestMarshalRawSparseExample(t *testing.T) {
 
 	// Use MarshalRaw for sparse data
 	result, err := MarshalRaw(sparseData)
-	if err != nil {
-		t.Fatalf("MarshalRaw failed: %v", err)
-	}
+	require.NoError(t, err, "MarshalRaw failed")
 
 	// Decode and verify
 	dec := NewDecoder(result)
 
 	decodedMask, err := dec.DecodeUint64()
-	if err != nil {
-		t.Fatalf("DecodeUint64 failed: %v", err)
-	}
-	if decodedMask != mask {
-		t.Errorf("Mask mismatch: expected %d, got %d", mask, decodedMask)
-	}
+	require.NoError(t, err, "DecodeUint64 failed")
+	assert.Equal(t, mask, decodedMask, "Mask mismatch")
 
 	decodedValue1, err := dec.DecodeUint32()
-	if err != nil {
-		t.Fatalf("DecodeUint32 failed: %v", err)
-	}
-	if decodedValue1 != 100 {
-		t.Errorf("Value1 mismatch: expected 100, got %d", decodedValue1)
-	}
+	require.NoError(t, err, "DecodeUint32 failed")
+	assert.Equal(t, uint32(100), decodedValue1, "Value1 mismatch")
 
 	decodedValue2, err := dec.DecodeUint64()
-	if err != nil {
-		t.Fatalf("DecodeUint64 failed: %v", err)
-	}
-	if decodedValue2 != 200 {
-		t.Errorf("Value2 mismatch: expected 200, got %d", decodedValue2)
-	}
+	require.NoError(t, err, "DecodeUint64 failed")
+	assert.Equal(t, uint64(200), decodedValue2, "Value2 mismatch")
 }
 
 // Test with nested structs
@@ -250,27 +203,17 @@ func TestNestedCodec(t *testing.T) {
 
 	// Test Marshal
 	data, err := Marshal(original)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
+	require.NoError(t, err, "Marshal failed")
 
 	// Test Unmarshal
 	var decoded NestedStruct
 	err = Unmarshal(data, &decoded)
-	if err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
-	}
+	require.NoError(t, err, "Unmarshal failed")
 
 	// Verify round-trip
-	if original.Inner.ID != decoded.Inner.ID {
-		t.Errorf("Inner.ID mismatch: expected %d, got %d", original.Inner.ID, decoded.Inner.ID)
-	}
-	if original.Inner.Name != decoded.Inner.Name {
-		t.Errorf("Inner.Name mismatch: expected %s, got %s", original.Inner.Name, decoded.Inner.Name)
-	}
-	if original.Count != decoded.Count {
-		t.Errorf("Count mismatch: expected %d, got %d", original.Count, decoded.Count)
-	}
+	assert.Equal(t, original.Inner.ID, decoded.Inner.ID, "Inner.ID mismatch")
+	assert.Equal(t, original.Inner.Name, decoded.Inner.Name, "Inner.Name mismatch")
+	assert.Equal(t, original.Count, decoded.Count, "Count mismatch")
 }
 
 func BenchmarkCodec(b *testing.B) {
@@ -282,24 +225,18 @@ func BenchmarkCodec(b *testing.B) {
 	b.Run("Marshal", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			_, err := Marshal(testType)
-			if err != nil {
-				b.Fatalf("Marshal failed: %v", err)
-			}
+			require.NoError(b, err, "Marshal failed")
 		}
 	})
 
 	data, err := Marshal(testType)
-	if err != nil {
-		b.Fatalf("Marshal failed: %v", err)
-	}
+	require.NoError(b, err, "Marshal failed")
 
 	b.Run("Unmarshal", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			var decoded TestType
 			err := Unmarshal(data, &decoded)
-			if err != nil {
-				b.Fatalf("Unmarshal failed: %v", err)
-			}
+			require.NoError(b, err, "Unmarshal failed")
 		}
 	})
 }

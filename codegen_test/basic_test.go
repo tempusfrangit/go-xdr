@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/tempusfrangit/go-xdr"
 )
 
@@ -20,10 +22,10 @@ const (
 	OpWrite OpCode = 4
 )
 
-// +xdr:generate
+// +xdr:union,key=OpCode
 // Operation represents an operation
 type Operation struct {
-	OpCode OpCode `xdr:"key"` // Operation discriminant
+	OpCode OpCode // Operation discriminant
 	Result []byte // Union payload (auto-detected)
 }
 
@@ -92,9 +94,7 @@ func TestAliasRoundTrip(t *testing.T) {
 	buf := make([]byte, 1024)
 	enc := xdr.NewEncoder(buf)
 	err := user.Encode(enc)
-	if err != nil {
-		t.Fatalf("Encode failed: %v", err)
-	}
+	require.NoError(t, err, "Encode failed")
 
 	data := enc.Bytes()
 
@@ -102,35 +102,17 @@ func TestAliasRoundTrip(t *testing.T) {
 	dec := xdr.NewDecoder(data)
 	var decoded TestUser
 	err = decoded.Decode(dec)
-	if err != nil {
-		t.Fatalf("Decode failed: %v", err)
-	}
+	require.NoError(t, err, "Decode failed")
 
 	// Verify all fields match
-	if decoded.ID != user.ID {
-		t.Errorf("ID mismatch: expected %v, got %v", user.ID, decoded.ID)
-	}
-	if string(decoded.Session) != string(user.Session) {
-		t.Errorf("Session mismatch: expected %v, got %v", user.Session, decoded.Session)
-	}
-	if decoded.Status != user.Status {
-		t.Errorf("Status mismatch: expected %v, got %v", user.Status, decoded.Status)
-	}
-	if decoded.Flags != user.Flags {
-		t.Errorf("Flags mismatch: expected %v, got %v", user.Flags, decoded.Flags)
-	}
-	if decoded.Priority != user.Priority {
-		t.Errorf("Priority mismatch: expected %v, got %v", user.Priority, decoded.Priority)
-	}
-	if decoded.Created != user.Created {
-		t.Errorf("Created mismatch: expected %v, got %v", user.Created, decoded.Created)
-	}
-	if decoded.Active != user.Active {
-		t.Errorf("Active mismatch: expected %v, got %v", user.Active, decoded.Active)
-	}
-	if decoded.Hash != user.Hash {
-		t.Errorf("Hash mismatch: expected %v, got %v", user.Hash, decoded.Hash)
-	}
+	assert.Equal(t, user.ID, decoded.ID, "ID mismatch")
+	assert.Equal(t, string(user.Session), string(decoded.Session), "Session mismatch")
+	assert.Equal(t, user.Status, decoded.Status, "Status mismatch")
+	assert.Equal(t, user.Flags, decoded.Flags, "Flags mismatch")
+	assert.Equal(t, user.Priority, decoded.Priority, "Priority mismatch")
+	assert.Equal(t, user.Created, decoded.Created, "Created mismatch")
+	assert.Equal(t, user.Active, decoded.Active, "Active mismatch")
+	assert.Equal(t, user.Hash, decoded.Hash, "Hash mismatch")
 }
 
 func TestFixedSizeArrayAlias(t *testing.T) {
@@ -364,10 +346,10 @@ const (
 	VoidOpPing VoidOpCode = 1
 )
 
-// +xdr:generate
+// +xdr:union,key=OpCode
 // VoidOperation tests void-only unions (all-void, default optional)
 type VoidOperation struct {
-	OpCode VoidOpCode `xdr:"key"` // Operation discriminant
+	OpCode VoidOpCode `` // Operation discriminant
 	Data   []byte     // Union payload (auto-detected as []byte following key)
 }
 

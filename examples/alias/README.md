@@ -1,6 +1,6 @@
 # XDR Alias Types Example
 
-This example demonstrates how to use type aliases with XDR encoding/decoding.
+This example demonstrates how type aliases work with XDR auto-detection.
 
 ## What are Alias Types?
 
@@ -19,46 +19,47 @@ These aliases are useful for:
 
 ## How XDR Alias Support Works
 
-The XDR library supports aliases through the `alias:TYPE` tag:
+The XDR library automatically detects and resolves type aliases:
 
 ```go
+// +xdr:generate
 type User struct {
-    ID       UserID     `xdr:"alias:string"`
-    Status   StatusCode `xdr:"alias:uint32"`
-    Active   IsActive   `xdr:"alias:bool"`
+    ID       UserID     // auto-detected as string
+    Status   StatusCode // auto-detected as uint32
+    Active   IsActive   // auto-detected as bool
 }
 ```
 
 ## Generated Code
 
-The code generator creates efficient encode/decode methods:
+The code generator creates efficient encode/decode methods with automatic type casting:
 
 **Encode:**
 ```go
-if err := enc.EncodeString(v.ID); err != nil { ... }
-if err := enc.EncodeUint32(v.Status); err != nil { ... }
-if err := enc.EncodeBool(v.Active); err != nil { ... }
+if err := enc.EncodeString(string(v.ID)); err != nil { ... }
+if err := enc.EncodeUint32(uint32(v.Status)); err != nil { ... }
+if err := enc.EncodeBool(bool(v.Active)); err != nil { ... }
 ```
 
 **Decode (with type conversion):**
 ```go
-tmp, err := dec.DecodeString()
+tempID, err := dec.DecodeString()
 if err != nil {
     return fmt.Errorf("failed to decode ID: %w", err)
 }
-v.ID = UserID(tmp)
+v.ID = UserID(tempID)
 
-tmp, err := dec.DecodeUint32()
+tempStatus, err := dec.DecodeUint32()
 if err != nil {
     return fmt.Errorf("failed to decode Status: %w", err)
 }
-v.Status = StatusCode(tmp)
+v.Status = StatusCode(tempStatus)
 
-tmp, err := dec.DecodeBool()
+tempActive, err := dec.DecodeBool()
 if err != nil {
     return fmt.Errorf("failed to decode Active: %w", err)
 }
-v.Active = IsActive(tmp)
+v.Active = IsActive(tempActive)
 ```
 
 ## Benefits
@@ -70,9 +71,10 @@ v.Active = IsActive(tmp)
 
 ## Supported Types
 
-All primitive XDR types support aliasing:
+All primitive XDR types support automatic alias detection:
 - `string` → `type MyString string`
 - `[]byte` → `type MyBytes []byte`
+- `[N]byte` → `type MyHash [N]byte`
 - `uint32` → `type MyUint32 uint32`
 - `uint64` → `type MyUint64 uint64`
 - `int32` → `type MyInt32 int32`

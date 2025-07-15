@@ -11,13 +11,13 @@ This directory contains comprehensive examples demonstrating different aspects o
 - **Best for**: Understanding XDR fundamentals
 
 ### 2. [autogen](autogen/) - Auto-Generated XDR
-- Struct tags for automatic code generation
+- Auto-detection of types for code generation
 - Complex nested structures
-- Generated `MarshalXDR`/`UnmarshalXDR` methods
-- **Best for**: Rapid development with minimal boilerplate
+- Generated `Encode`/`Decode` methods
+- **Best for**: Rapid development with zero boilerplate
 
 ### 3. [discriminated-union](discriminated-union/) - Discriminated Unions
-- Clean syntax with automatic void case detection
+- Directive-based syntax with automatic void case detection
 - Variant types based on discriminant fields
 - Conditional encoding/decoding with proper XDR compliance
 - **Best for**: Protocol implementations with optional fields and variant types
@@ -57,7 +57,7 @@ This integrates with Go's standard tooling and doesn't require custom build syst
 ## Learning Path
 
 1. **Start with encode-decode** - Learn XDR basics and manual operations
-2. **Try autogen** - See how struct tags simplify development
+2. **Try autogen** - See how auto-detection simplifies development
 3. **Explore discriminated-union** - Understand variant types for protocols
 4. **Study mixed-manual** - Learn advanced customization techniques
 5. **Learn alias** - Use type aliases for better type safety
@@ -66,5 +66,5 @@ This integrates with Go's standard tooling and doesn't require custom build syst
 
 - **Round-trip testing**: Always verify encode→decode→compare cycles
 - **Error handling**: Check encoding/decoding errors in production code
-- **Type safety**: Use struct tags and generated methods for validation
+- **Type safety**: Use directive comments and generated methods for validation
 - **Performance**: Consider allocation patterns for high-throughput scenarios

@@ -125,13 +125,14 @@ Run code generation:
 go generate
 ```
 
-### Ultra-Minimal Tagging System
+### Ultra-Minimal Directive System
 
 #### Struct Opt-in
-- `// +xdr:generate` - Mark struct for XDR code generation
+- `// +xdr:generate` - Mark regular struct for XDR code generation
+- `// +xdr:union,key=FieldName[,default=ConstName]` - Mark union container struct
+- `// +xdr:payload,union=UnionName,discriminant=ConstName` - Mark union payload struct
 
-#### Only 2 Tags Needed!
-- `xdr:"key[,default=nil|StructName]"` - union discriminant field
+#### Only 1 Tag Needed!
 - `xdr:"-"` - exclude field from encoding
 
 #### Everything Else Auto-Detected
@@ -151,38 +152,39 @@ go generate
 
 ### Discriminated Unions (Auto-Detected)
 
-Unions are auto-detected from `key + []byte` field patterns:
+Unions are auto-detected from directive comments and `key + []byte` field patterns:
 
 ```go
-// All-void union (default=nil optional, auto-inferred)
-// +xdr:generate
+// All-void union (default optional, auto-inferred)
+// +xdr:union,key=Status
 type StatusOnly struct {
-    Status StatusCode `xdr:"key"` // discriminant
-    Data   []byte                 // auto-detected as union payload
+    Status StatusCode // discriminant
+    Data   []byte     // auto-detected as union payload
     // All StatusCode constants without payload structs → void cases
 }
 
-// Mixed union with void default (default=nil required)
-// +xdr:generate
+// Mixed union with void default
+// +xdr:union,key=OpCode,default=OpUnknown
 type MixedOperation struct {
-    OpCode OpCode `xdr:"key,default=nil"` // void default for unknowns
-    Result []byte                         // auto-detected as union payload
+    OpCode OpCode // discriminant
+    Result []byte // auto-detected as union payload
 }
 
-// Mixed union with struct default
-// +xdr:generate
-type SafeOperation struct {
-    OpCode OpCode `xdr:"key,default=ErrorResult"` // struct default
-    Result []byte                                 // auto-detected as union payload
+// Payload structs use separate directive
+// +xdr:payload,union=MixedOperation,discriminant=OpSuccess
+type SuccessPayload struct {
+    Message string // auto-detected as string
+    Code    uint32 // auto-detected as uint32
 }
 ```
 
 #### Key Features
 
-- **Auto-detection**: `[]byte` field immediately following `xdr:"key"` = union payload
-- **No union tags**: Eliminated `xdr:"union"` - position-based detection
-- **All-void unions**: `default=nil` optional (automatically inferred when no payloads exist)
-- **Mixed unions**: `default=nil` or `default=StructName` required for unknown discriminants
+- **Directive-based**: `// +xdr:union,key=FieldName` instead of struct tags
+- **Auto-detection**: `[]byte` field immediately following discriminant = union payload
+- **Separate payload directives**: `// +xdr:payload,union=UnionName,discriminant=ConstName`
+- **All-void unions**: `default=` optional (automatically inferred when no payloads exist)
+- **Mixed unions**: `default=ConstName` for unknown discriminants
 - **Alias resolution**: Discriminant can be any uint32 alias, automatically resolved
 - **Type safety**: Compile-time validation with interface assertions
 
@@ -203,23 +205,23 @@ type User struct {
     Internal string      `xdr:"-"` // excluded
 }
 
-// +xdr:generate
+// +xdr:union,key=Code,default=APIUnknown
 type APIResponse struct {
-    Code APICode `xdr:"key,default=nil"` // void default for unknown codes
-    Data []byte                         // auto-detected union payload
+    Code APICode // discriminant
+    Data []byte  // auto-detected union payload
 }
 
 // Payload structs (no tags needed!)
-// +xdr:generate
+// +xdr:payload,union=APIResponse,discriminant=APISuccess
 type SuccessPayload struct {
-    UserID   UserID
-    UserData []byte
+    UserID   UserID // auto-detected as string
+    UserData []byte // auto-detected as bytes
 }
 
-// +xdr:generate
+// +xdr:payload,union=APIResponse,discriminant=APIError
 type ErrorPayload struct {
-    Message string
-    Code    uint32
+    Message string // auto-detected as string
+    Code    uint32 // auto-detected as uint32
 }
 ```
 

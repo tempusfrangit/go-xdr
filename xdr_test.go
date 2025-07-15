@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // failingWriter fails after N successful writes
@@ -52,145 +55,105 @@ func TestEncoder(t *testing.T) {
 	t.Run("EncodeUint32", func(t *testing.T) {
 		encoder.Reset(buf)
 		err := encoder.EncodeUint32(0x12345678)
-		if err != nil {
-			t.Fatalf("EncodeUint32 failed: %v", err)
-		}
+		require.NoError(t, err, "EncodeUint32 failed")
 
 		expected := []byte{0x12, 0x34, 0x56, 0x78}
 		result := encoder.Bytes()
-		if !bytes.Equal(result, expected) {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("EncodeUint64", func(t *testing.T) {
 		encoder.Reset(buf)
 		err := encoder.EncodeUint64(0x123456789ABCDEF0)
-		if err != nil {
-			t.Fatalf("EncodeUint64 failed: %v", err)
-		}
+		require.NoError(t, err, "EncodeUint64 failed")
 
 		expected := []byte{0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0}
 		result := encoder.Bytes()
-		if !bytes.Equal(result, expected) {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("EncodeInt32", func(t *testing.T) {
 		encoder.Reset(buf)
 		err := encoder.EncodeInt32(-1)
-		if err != nil {
-			t.Fatalf("EncodeInt32 failed: %v", err)
-		}
+		require.NoError(t, err, "EncodeInt32 failed")
 
 		expected := []byte{0xFF, 0xFF, 0xFF, 0xFF}
 		result := encoder.Bytes()
-		if !bytes.Equal(result, expected) {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("EncodeInt64", func(t *testing.T) {
 		encoder.Reset(buf)
 		err := encoder.EncodeInt64(-1)
-		if err != nil {
-			t.Fatalf("EncodeInt64 failed: %v", err)
-		}
+		require.NoError(t, err, "EncodeInt64 failed")
 
 		expected := []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
 		result := encoder.Bytes()
-		if !bytes.Equal(result, expected) {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("EncodeBool", func(t *testing.T) {
 		encoder.Reset(buf)
 		err := encoder.EncodeBool(true)
-		if err != nil {
-			t.Fatalf("EncodeBool failed: %v", err)
-		}
+		require.NoError(t, err, "EncodeBool failed")
 
 		expected := []byte{0x00, 0x00, 0x00, 0x01}
 		result := encoder.Bytes()
-		if !bytes.Equal(result, expected) {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
+		assert.Equal(t, expected, result)
 
 		encoder.Reset(buf)
 		err = encoder.EncodeBool(false)
-		if err != nil {
-			t.Fatalf("EncodeBool failed: %v", err)
-		}
+		require.NoError(t, err, "EncodeBool failed")
 
 		expected = []byte{0x00, 0x00, 0x00, 0x00}
 		result = encoder.Bytes()
-		if !bytes.Equal(result, expected) {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("EncodeString", func(t *testing.T) {
 		encoder.Reset(buf)
 		err := encoder.EncodeString("test")
-		if err != nil {
-			t.Fatalf("EncodeString failed: %v", err)
-		}
+		require.NoError(t, err, "EncodeString failed")
 
 		// Length (4) + "test" + padding (0)
 		expected := []byte{0x00, 0x00, 0x00, 0x04, 't', 'e', 's', 't'}
 		result := encoder.Bytes()
-		if !bytes.Equal(result, expected) {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("EncodeStringWithPadding", func(t *testing.T) {
 		encoder.Reset(buf)
 		err := encoder.EncodeString("hello")
-		if err != nil {
-			t.Fatalf("EncodeString failed: %v", err)
-		}
+		require.NoError(t, err, "EncodeString failed")
 
 		// Length (5) + "hello" + padding (3 bytes to align to 4)
 		expected := []byte{0x00, 0x00, 0x00, 0x05, 'h', 'e', 'l', 'l', 'o', 0x00, 0x00, 0x00}
 		result := encoder.Bytes()
-		if !bytes.Equal(result, expected) {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("EncodeBytes", func(t *testing.T) {
 		encoder.Reset(buf)
 		data := []byte{0x01, 0x02, 0x03}
 		err := encoder.EncodeBytes(data)
-		if err != nil {
-			t.Fatalf("EncodeBytes failed: %v", err)
-		}
+		require.NoError(t, err, "EncodeBytes failed")
 
 		// Length (3) + data + padding (1 byte)
 		expected := []byte{0x00, 0x00, 0x00, 0x03, 0x01, 0x02, 0x03, 0x00}
 		result := encoder.Bytes()
-		if !bytes.Equal(result, expected) {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("EncodeFixedBytes", func(t *testing.T) {
 		encoder.Reset(buf)
 		data := []byte{0x01, 0x02, 0x03}
 		err := encoder.EncodeFixedBytes(data)
-		if err != nil {
-			t.Fatalf("EncodeFixedBytes failed: %v", err)
-		}
+		require.NoError(t, err, "EncodeFixedBytes failed")
 
 		// Data + padding (1 byte) - no length prefix
 		expected := []byte{0x01, 0x02, 0x03, 0x00}
 		result := encoder.Bytes()
-		if !bytes.Equal(result, expected) {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("BufferTooSmall", func(t *testing.T) {
@@ -198,45 +161,35 @@ func TestEncoder(t *testing.T) {
 			smallBuf := make([]byte, 2)
 			encoder := NewEncoder(smallBuf)
 			err := encoder.EncodeUint32(0x12345678)
-			if err != ErrBufferTooSmall {
-				t.Errorf("Expected ErrBufferTooSmall, got %v", err)
-			}
+			assert.ErrorIs(t, err, ErrBufferTooSmall, "Expected ErrBufferTooSmall")
 		})
 
 		t.Run("EncodeUint64", func(t *testing.T) {
 			smallBuf := make([]byte, 4)
 			encoder := NewEncoder(smallBuf)
 			err := encoder.EncodeUint64(0x123456789ABCDEF0)
-			if err != ErrBufferTooSmall {
-				t.Errorf("Expected ErrBufferTooSmall, got %v", err)
-			}
+			require.ErrorIs(t, err, ErrBufferTooSmall, "Expected ErrBufferTooSmall")
 		})
 
 		t.Run("EncodeBytes", func(t *testing.T) {
 			smallBuf := make([]byte, 2)
 			encoder := NewEncoder(smallBuf)
 			err := encoder.EncodeBytes([]byte("test"))
-			if err != ErrBufferTooSmall {
-				t.Errorf("Expected ErrBufferTooSmall, got %v", err)
-			}
+			require.ErrorIs(t, err, ErrBufferTooSmall, "Expected ErrBufferTooSmall")
 		})
 
 		t.Run("EncodeString", func(t *testing.T) {
 			smallBuf := make([]byte, 2)
 			encoder := NewEncoder(smallBuf)
 			err := encoder.EncodeString("test")
-			if err != ErrBufferTooSmall {
-				t.Errorf("Expected ErrBufferTooSmall, got %v", err)
-			}
+			require.ErrorIs(t, err, ErrBufferTooSmall, "Expected ErrBufferTooSmall")
 		})
 
 		t.Run("EncodeFixedBytes", func(t *testing.T) {
 			smallBuf := make([]byte, 2)
 			encoder := NewEncoder(smallBuf)
 			err := encoder.EncodeFixedBytes([]byte("test"))
-			if err != ErrBufferTooSmall {
-				t.Errorf("Expected ErrBufferTooSmall, got %v", err)
-			}
+			require.ErrorIs(t, err, ErrBufferTooSmall, "Expected ErrBufferTooSmall")
 		})
 	})
 }
@@ -247,14 +200,10 @@ func TestDecoder(t *testing.T) {
 		decoder := NewDecoder(data)
 
 		result, err := decoder.DecodeUint32()
-		if err != nil {
-			t.Fatalf("DecodeUint32 failed: %v", err)
-		}
+		require.NoError(t, err, "DecodeUint32 failed")
 
 		expected := uint32(0x12345678)
-		if result != expected {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("DecodeUint64", func(t *testing.T) {
@@ -262,14 +211,10 @@ func TestDecoder(t *testing.T) {
 		decoder := NewDecoder(data)
 
 		result, err := decoder.DecodeUint64()
-		if err != nil {
-			t.Fatalf("DecodeUint64 failed: %v", err)
-		}
+		require.NoError(t, err, "DecodeUint64 failed")
 
 		expected := uint64(0x123456789ABCDEF0)
-		if result != expected {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("DecodeInt32", func(t *testing.T) {
@@ -277,14 +222,10 @@ func TestDecoder(t *testing.T) {
 		decoder := NewDecoder(data)
 
 		result, err := decoder.DecodeInt32()
-		if err != nil {
-			t.Fatalf("DecodeInt32 failed: %v", err)
-		}
+		require.NoError(t, err, "DecodeInt32 failed")
 
 		expected := int32(-1)
-		if result != expected {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("DecodeInt64", func(t *testing.T) {
@@ -292,14 +233,10 @@ func TestDecoder(t *testing.T) {
 		decoder := NewDecoder(data)
 
 		result, err := decoder.DecodeInt64()
-		if err != nil {
-			t.Fatalf("DecodeInt64 failed: %v", err)
-		}
+		require.NoError(t, err, "DecodeInt64 failed")
 
 		expected := int64(-1)
-		if result != expected {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("DecodeBool", func(t *testing.T) {
@@ -307,23 +244,15 @@ func TestDecoder(t *testing.T) {
 		decoder := NewDecoder(data)
 
 		result, err := decoder.DecodeBool()
-		if err != nil {
-			t.Fatalf("DecodeBool failed: %v", err)
-		}
+		require.NoError(t, err, "DecodeBool failed")
 
-		if !result {
-			t.Errorf("Expected true, got false")
-		}
+		assert.True(t, result)
 
 		decoder.Reset([]byte{0x00, 0x00, 0x00, 0x00})
 		result, err = decoder.DecodeBool()
-		if err != nil {
-			t.Fatalf("DecodeBool failed: %v", err)
-		}
+		require.NoError(t, err, "DecodeBool failed")
 
-		if result {
-			t.Errorf("Expected false, got true")
-		}
+		assert.False(t, result)
 	})
 
 	t.Run("DecodeString", func(t *testing.T) {
@@ -331,14 +260,10 @@ func TestDecoder(t *testing.T) {
 		decoder := NewDecoder(data)
 
 		result, err := decoder.DecodeString()
-		if err != nil {
-			t.Fatalf("DecodeString failed: %v", err)
-		}
+		require.NoError(t, err, "DecodeString failed")
 
 		expected := "test"
-		if result != expected {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("DecodeStringWithPadding", func(t *testing.T) {
@@ -346,14 +271,10 @@ func TestDecoder(t *testing.T) {
 		decoder := NewDecoder(data)
 
 		result, err := decoder.DecodeString()
-		if err != nil {
-			t.Fatalf("DecodeString failed: %v", err)
-		}
+		require.NoError(t, err, "DecodeString failed")
 
 		expected := "hello"
-		if result != expected {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("DecodeBytes", func(t *testing.T) {
@@ -361,14 +282,10 @@ func TestDecoder(t *testing.T) {
 		decoder := NewDecoder(data)
 
 		result, err := decoder.DecodeBytes()
-		if err != nil {
-			t.Fatalf("DecodeBytes failed: %v", err)
-		}
+		require.NoError(t, err, "DecodeBytes failed")
 
 		expected := []byte{0x01, 0x02, 0x03}
-		if !bytes.Equal(result, expected) {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("DecodeFixedBytes", func(t *testing.T) {
@@ -376,14 +293,10 @@ func TestDecoder(t *testing.T) {
 		decoder := NewDecoder(data)
 
 		result, err := decoder.DecodeFixedBytes(3)
-		if err != nil {
-			t.Fatalf("DecodeFixedBytes failed: %v", err)
-		}
+		require.NoError(t, err, "DecodeFixedBytes failed")
 
 		expected := []byte{0x01, 0x02, 0x03}
-		if !bytes.Equal(result, expected) {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("UnexpectedEOF", func(t *testing.T) {
@@ -392,9 +305,7 @@ func TestDecoder(t *testing.T) {
 			decoder := NewDecoder(data)
 
 			_, err := decoder.DecodeUint32()
-			if err != ErrUnexpectedEOF {
-				t.Errorf("Expected ErrUnexpectedEOF, got %v", err)
-			}
+			require.ErrorIs(t, err, ErrUnexpectedEOF)
 		})
 
 		t.Run("DecodeUint64", func(t *testing.T) {
@@ -402,9 +313,7 @@ func TestDecoder(t *testing.T) {
 			decoder := NewDecoder(data)
 
 			_, err := decoder.DecodeUint64()
-			if err != ErrUnexpectedEOF {
-				t.Errorf("Expected ErrUnexpectedEOF, got %v", err)
-			}
+			require.ErrorIs(t, err, ErrUnexpectedEOF)
 		})
 
 		t.Run("DecodeBool", func(t *testing.T) {
@@ -412,9 +321,7 @@ func TestDecoder(t *testing.T) {
 			decoder := NewDecoder(data)
 
 			_, err := decoder.DecodeBool()
-			if err != ErrUnexpectedEOF {
-				t.Errorf("Expected ErrUnexpectedEOF, got %v", err)
-			}
+			require.ErrorIs(t, err, ErrUnexpectedEOF)
 		})
 
 		t.Run("DecodeBytes_Length", func(t *testing.T) {
@@ -422,9 +329,7 @@ func TestDecoder(t *testing.T) {
 			decoder := NewDecoder(data)
 
 			_, err := decoder.DecodeBytes()
-			if err != ErrUnexpectedEOF {
-				t.Errorf("Expected ErrUnexpectedEOF, got %v", err)
-			}
+			require.ErrorIs(t, err, ErrUnexpectedEOF)
 		})
 
 		t.Run("DecodeBytes_Data", func(t *testing.T) {
@@ -432,9 +337,7 @@ func TestDecoder(t *testing.T) {
 			decoder := NewDecoder(data)
 
 			_, err := decoder.DecodeBytes()
-			if err != ErrUnexpectedEOF {
-				t.Errorf("Expected ErrUnexpectedEOF, got %v", err)
-			}
+			require.ErrorIs(t, err, ErrUnexpectedEOF)
 		})
 
 		t.Run("DecodeString_Length", func(t *testing.T) {
@@ -442,9 +345,7 @@ func TestDecoder(t *testing.T) {
 			decoder := NewDecoder(data)
 
 			_, err := decoder.DecodeString()
-			if err != ErrUnexpectedEOF {
-				t.Errorf("Expected ErrUnexpectedEOF, got %v", err)
-			}
+			require.ErrorIs(t, err, ErrUnexpectedEOF)
 		})
 
 		t.Run("DecodeString_Data", func(t *testing.T) {
@@ -452,9 +353,7 @@ func TestDecoder(t *testing.T) {
 			decoder := NewDecoder(data)
 
 			_, err := decoder.DecodeString()
-			if err != ErrUnexpectedEOF {
-				t.Errorf("Expected ErrUnexpectedEOF, got %v", err)
-			}
+			require.ErrorIs(t, err, ErrUnexpectedEOF)
 		})
 
 		t.Run("DecodeFixedBytes", func(t *testing.T) {
@@ -462,9 +361,7 @@ func TestDecoder(t *testing.T) {
 			decoder := NewDecoder(data)
 
 			_, err := decoder.DecodeFixedBytes(8)
-			if err != ErrUnexpectedEOF {
-				t.Errorf("Expected ErrUnexpectedEOF, got %v", err)
-			}
+			require.ErrorIs(t, err, ErrUnexpectedEOF)
 		})
 	})
 
@@ -478,9 +375,7 @@ func TestDecoder(t *testing.T) {
 		decoder := NewDecoder(data)
 
 		_, err := decoder.DecodeBytes()
-		if err != ErrInvalidData {
-			t.Errorf("Expected ErrInvalidData, got %v", err)
-		}
+		require.ErrorIs(t, err, ErrInvalidData)
 	})
 }
 
@@ -526,60 +421,32 @@ func TestRoundTrip(t *testing.T) {
 		switch exp := expected.(type) {
 		case uint32:
 			result, err := decoder.DecodeUint32()
-			if err != nil {
-				t.Fatalf("Value %d decode failed: %v", i, err)
-			}
-			if result != exp {
-				t.Errorf("Value %d: expected %v, got %v", i, exp, result)
-			}
+			require.NoError(t, err, "Value %d decode failed", i)
+			assert.Equal(t, exp, result)
 		case uint64:
 			result, err := decoder.DecodeUint64()
-			if err != nil {
-				t.Fatalf("Value %d decode failed: %v", i, err)
-			}
-			if result != exp {
-				t.Errorf("Value %d: expected %v, got %v", i, exp, result)
-			}
+			require.NoError(t, err, "Value %d decode failed", i)
+			assert.Equal(t, exp, result)
 		case int32:
 			result, err := decoder.DecodeInt32()
-			if err != nil {
-				t.Fatalf("Value %d decode failed: %v", i, err)
-			}
-			if result != exp {
-				t.Errorf("Value %d: expected %v, got %v", i, exp, result)
-			}
+			require.NoError(t, err, "Value %d decode failed", i)
+			assert.Equal(t, exp, result)
 		case int64:
 			result, err := decoder.DecodeInt64()
-			if err != nil {
-				t.Fatalf("Value %d decode failed: %v", i, err)
-			}
-			if result != exp {
-				t.Errorf("Value %d: expected %v, got %v", i, exp, result)
-			}
+			require.NoError(t, err, "Value %d decode failed", i)
+			assert.Equal(t, exp, result)
 		case bool:
 			result, err := decoder.DecodeBool()
-			if err != nil {
-				t.Fatalf("Value %d decode failed: %v", i, err)
-			}
-			if result != exp {
-				t.Errorf("Value %d: expected %v, got %v", i, exp, result)
-			}
+			require.NoError(t, err, "Value %d decode failed", i)
+			assert.Equal(t, exp, result)
 		case string:
 			result, err := decoder.DecodeString()
-			if err != nil {
-				t.Fatalf("Value %d decode failed: %v", i, err)
-			}
-			if result != exp {
-				t.Errorf("Value %d: expected %v, got %v", i, exp, result)
-			}
+			require.NoError(t, err, "Value %d decode failed", i)
+			assert.Equal(t, exp, result)
 		case []byte:
 			result, err := decoder.DecodeBytes()
-			if err != nil {
-				t.Fatalf("Value %d decode failed: %v", i, err)
-			}
-			if !bytes.Equal(result, exp) {
-				t.Errorf("Value %d: expected %v, got %v", i, exp, result)
-			}
+			require.NoError(t, err, "Value %d decode failed", i)
+			assert.Equal(t, exp, result)
 		}
 	}
 }
@@ -594,14 +461,10 @@ func TestGetSlice(t *testing.T) {
 		slice := decoder.GetSlice(0, 4)
 		expected := []byte{0x00, 0x00, 0x12, 0x34}
 
-		if !bytes.Equal(slice, expected) {
-			t.Errorf("Expected %v, got %v", expected, slice)
-		}
+		assert.Equal(t, expected, slice)
 
 		// Verify zero-copy (same underlying array)
-		if len(slice) > 0 && &slice[0] != &data[0] {
-			t.Error("GetSlice should return zero-copy slice")
-		}
+		assert.True(t, len(slice) > 0 && &slice[0] == &data[0], "GetSlice should return zero-copy slice")
 	})
 
 	t.Run("GetSlice after decoding", func(t *testing.T) {
@@ -609,21 +472,15 @@ func TestGetSlice(t *testing.T) {
 
 		// Decode first value to advance position
 		val1, err := decoder.DecodeUint32()
-		if err != nil {
-			t.Fatalf("DecodeUint32 failed: %v", err)
-		}
-		if val1 != 0x1234 {
-			t.Errorf("Expected 0x1234, got 0x%x", val1)
-		}
+		require.NoError(t, err, "DecodeUint32 failed")
+		assert.Equal(t, uint32(0x1234), val1)
 
 		// Get slice from current position to end
 		pos := decoder.Position()
 		slice := decoder.GetSlice(pos, len(data))
 		expected := []byte{0x00, 0x00, 0x56, 0x78}
 
-		if !bytes.Equal(slice, expected) {
-			t.Errorf("Expected %v, got %v", expected, slice)
-		}
+		assert.Equal(t, expected, slice)
 	})
 
 	t.Run("GetSlice with invalid ranges", func(t *testing.T) {
@@ -631,21 +488,15 @@ func TestGetSlice(t *testing.T) {
 
 		// Test negative start
 		slice := decoder.GetSlice(-1, 4)
-		if slice != nil {
-			t.Error("Expected nil for negative start")
-		}
+		assert.Nil(t, slice, "Expected nil for negative start")
 
 		// Test end beyond buffer
 		slice = decoder.GetSlice(0, len(data)+1)
-		if slice != nil {
-			t.Error("Expected nil for end beyond buffer")
-		}
+		assert.Nil(t, slice, "Expected nil for end beyond buffer")
 
 		// Test start > end
 		slice = decoder.GetSlice(4, 2)
-		if slice != nil {
-			t.Error("Expected nil for start > end")
-		}
+		assert.Nil(t, slice, "Expected nil for start > end")
 	})
 }
 
@@ -654,49 +505,30 @@ func TestDecoderMethods(t *testing.T) {
 	decoder := NewDecoder(data)
 
 	t.Run("Position and Remaining", func(t *testing.T) {
-		if decoder.Position() != 0 {
-			t.Errorf("Expected position 0, got %d", decoder.Position())
-		}
+		assert.Equal(t, 0, decoder.Position(), "Expected position 0")
 
-		if decoder.Remaining() != len(data) {
-			t.Errorf("Expected remaining %d, got %d", len(data), decoder.Remaining())
-		}
+		assert.Equal(t, len(data), decoder.Remaining(), "Expected remaining %d", len(data))
 
 		// Decode one uint32
 		_, err := decoder.DecodeUint32()
-		if err != nil {
-			t.Fatalf("DecodeUint32 failed: %v", err)
-		}
+		require.NoError(t, err, "DecodeUint32 failed")
 
-		if decoder.Position() != 4 {
-			t.Errorf("Expected position 4, got %d", decoder.Position())
-		}
+		assert.Equal(t, 4, decoder.Position(), "Expected position 4")
 
-		if decoder.Remaining() != len(data)-4 {
-			t.Errorf("Expected remaining %d, got %d", len(data)-4, decoder.Remaining())
-		}
+		assert.Equal(t, len(data)-4, decoder.Remaining(), "Expected remaining %d", len(data)-4)
 	})
 
 	t.Run("Reset", func(t *testing.T) {
 		newData := []byte{0x11, 0x22, 0x33, 0x44}
 		decoder.Reset(newData)
 
-		if decoder.Position() != 0 {
-			t.Errorf("Expected position 0 after reset, got %d", decoder.Position())
-		}
-
-		if decoder.Remaining() != len(newData) {
-			t.Errorf("Expected remaining %d after reset, got %d", len(newData), decoder.Remaining())
-		}
+		assert.Equal(t, 0, decoder.Position(), "Expected position 0 after reset")
+		assert.Equal(t, len(newData), decoder.Remaining(), "Expected remaining %d after reset", len(newData))
 
 		val, err := decoder.DecodeUint32()
-		if err != nil {
-			t.Fatalf("DecodeUint32 failed: %v", err)
-		}
+		require.NoError(t, err, "DecodeUint32 failed")
 
-		if val != 0x11223344 {
-			t.Errorf("Expected 0x11223344, got 0x%x", val)
-		}
+		assert.Equal(t, uint32(0x11223344), val)
 	})
 }
 
@@ -705,46 +537,30 @@ func TestEncoderMethods(t *testing.T) {
 	encoder := NewEncoder(buf)
 
 	t.Run("Len and Bytes", func(t *testing.T) {
-		if encoder.Len() != 0 {
-			t.Errorf("Expected length 0, got %d", encoder.Len())
-		}
+		assert.Equal(t, 0, encoder.Len(), "Expected length 0")
 
-		if len(encoder.Bytes()) != 0 {
-			t.Errorf("Expected bytes length 0, got %d", len(encoder.Bytes()))
-		}
+		assert.Empty(t, encoder.Bytes(), "Expected bytes length 0")
 
 		// Encode one uint32
 		err := encoder.EncodeUint32(0x12345678)
-		if err != nil {
-			t.Fatalf("EncodeUint32 failed: %v", err)
-		}
+		require.NoError(t, err, "EncodeUint32 failed")
 
-		if encoder.Len() != 4 {
-			t.Errorf("Expected length 4, got %d", encoder.Len())
-		}
+		assert.Equal(t, 4, encoder.Len(), "Expected length 4")
 
-		if len(encoder.Bytes()) != 4 {
-			t.Errorf("Expected bytes length 4, got %d", len(encoder.Bytes()))
-		}
+		assert.Len(t, encoder.Bytes(), 4, "Expected bytes length 4")
 	})
 
 	t.Run("Reset", func(t *testing.T) {
 		newBuf := make([]byte, 512)
 		encoder.Reset(newBuf)
 
-		if encoder.Len() != 0 {
-			t.Errorf("Expected length 0 after reset, got %d", encoder.Len())
-		}
+		assert.Equal(t, 0, encoder.Len(), "Expected length 0 after reset")
 
 		err := encoder.EncodeUint32(0x87654321)
-		if err != nil {
-			t.Fatalf("EncodeUint32 failed: %v", err)
-		}
+		require.NoError(t, err, "EncodeUint32 failed")
 
 		expected := []byte{0x87, 0x65, 0x43, 0x21}
-		if !bytes.Equal(encoder.Bytes(), expected) {
-			t.Errorf("Expected %v, got %v", expected, encoder.Bytes())
-		}
+		assert.Equal(t, expected, encoder.Bytes())
 	})
 }
 
@@ -788,25 +604,16 @@ func TestPadding(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			encoder.Reset(buf)
 			err := encoder.EncodeFixedBytes(tc.input)
-			if err != nil {
-				t.Fatalf("EncodeFixedBytes failed: %v", err)
-			}
+			require.NoError(t, err, "EncodeFixedBytes failed")
 
 			result := encoder.Bytes()
-			if !bytes.Equal(result, tc.expected) {
-				t.Errorf("Expected %v, got %v", tc.expected, result)
-			}
+			assert.Equal(t, tc.expected, result)
 
 			// Test decoding
 			decoder := NewDecoder(result)
 			decoded, err := decoder.DecodeFixedBytes(len(tc.input))
-			if err != nil {
-				t.Fatalf("DecodeFixedBytes failed: %v", err)
-			}
-
-			if !bytes.Equal(decoded, tc.input) {
-				t.Errorf("Round-trip failed: expected %v, got %v", tc.input, decoded)
-			}
+			require.NoError(t, err, "DecodeFixedBytes failed")
+			assert.Equal(t, tc.input, decoded)
 		})
 	}
 }
@@ -875,14 +682,10 @@ func TestWriter(t *testing.T) {
 		writer := NewWriter(&buf)
 
 		err := writer.WriteUint32(0x12345678)
-		if err != nil {
-			t.Fatalf("WriteUint32 failed: %v", err)
-		}
+		require.NoError(t, err, "WriteUint32 failed")
 
 		expected := []byte{0x12, 0x34, 0x56, 0x78}
-		if !bytes.Equal(buf.Bytes(), expected) {
-			t.Errorf("Expected %v, got %v", expected, buf.Bytes())
-		}
+		assert.Equal(t, expected, buf.Bytes())
 	})
 
 	t.Run("WriteBytes", func(t *testing.T) {
@@ -891,15 +694,11 @@ func TestWriter(t *testing.T) {
 
 		testData := []byte("hello")
 		err := writer.WriteBytes(testData)
-		if err != nil {
-			t.Fatalf("WriteBytes failed: %v", err)
-		}
+		require.NoError(t, err, "WriteBytes failed")
 
 		// Expected: length (4 bytes) + data (5 bytes) + padding (3 bytes)
 		expected := []byte{0x00, 0x00, 0x00, 0x05, 'h', 'e', 'l', 'l', 'o', 0x00, 0x00, 0x00}
-		if !bytes.Equal(buf.Bytes(), expected) {
-			t.Errorf("Expected %v, got %v", expected, buf.Bytes())
-		}
+		assert.Equal(t, expected, buf.Bytes())
 	})
 
 	t.Run("WriteBytes_NoPadding", func(t *testing.T) {
@@ -908,40 +707,30 @@ func TestWriter(t *testing.T) {
 
 		testData := []byte("test") // 4 bytes, no padding needed
 		err := writer.WriteBytes(testData)
-		if err != nil {
-			t.Fatalf("WriteBytes failed: %v", err)
-		}
+		require.NoError(t, err, "WriteBytes failed")
 
 		// Expected: length (4 bytes) + data (4 bytes)
 		expected := []byte{0x00, 0x00, 0x00, 0x04, 't', 'e', 's', 't'}
-		if !bytes.Equal(buf.Bytes(), expected) {
-			t.Errorf("Expected %v, got %v", expected, buf.Bytes())
-		}
+		assert.Equal(t, expected, buf.Bytes())
 	})
 
 	t.Run("WriteBytes_ErrorPaths", func(t *testing.T) {
 		t.Run("WriteUint32_Fails", func(t *testing.T) {
 			writer := NewWriter(&failingWriter{failAfter: 0})
 			err := writer.WriteBytes([]byte("test"))
-			if err == nil {
-				t.Error("Expected error from WriteUint32, got nil")
-			}
+			require.Error(t, err, "Expected error from WriteUint32, got nil")
 		})
 
 		t.Run("Write_Data_Fails", func(t *testing.T) {
 			writer := NewWriter(&failingWriter{failAfter: 1})
 			err := writer.WriteBytes([]byte("test"))
-			if err == nil {
-				t.Error("Expected error from Write data, got nil")
-			}
+			require.Error(t, err, "Expected error from Write data, got nil")
 		})
 
 		t.Run("Write_Padding_Fails", func(t *testing.T) {
 			writer := NewWriter(&failingWriter{failAfter: 2})
 			err := writer.WriteBytes([]byte("hello")) // needs padding
-			if err == nil {
-				t.Error("Expected error from Write padding, got nil")
-			}
+			require.Error(t, err, "Expected error from Write padding, got nil")
 		})
 	})
 }
@@ -952,14 +741,10 @@ func TestReader(t *testing.T) {
 		reader := NewReader(bytes.NewReader(data))
 
 		result, err := reader.ReadUint32()
-		if err != nil {
-			t.Fatalf("ReadUint32 failed: %v", err)
-		}
+		require.NoError(t, err, "ReadUint32 failed")
 
 		expected := uint32(0x12345678)
-		if result != expected {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("ReadBytes", func(t *testing.T) {
@@ -968,14 +753,10 @@ func TestReader(t *testing.T) {
 		reader := NewReader(bytes.NewReader(data))
 
 		result, err := reader.ReadBytes()
-		if err != nil {
-			t.Fatalf("ReadBytes failed: %v", err)
-		}
+		require.NoError(t, err, "ReadBytes failed")
 
 		expected := []byte("hello")
-		if !bytes.Equal(result, expected) {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("ReadBytes_NoPadding", func(t *testing.T) {
@@ -984,14 +765,10 @@ func TestReader(t *testing.T) {
 		reader := NewReader(bytes.NewReader(data))
 
 		result, err := reader.ReadBytes()
-		if err != nil {
-			t.Fatalf("ReadBytes failed: %v", err)
-		}
+		require.NoError(t, err, "ReadBytes failed")
 
 		expected := []byte("test")
-		if !bytes.Equal(result, expected) {
-			t.Errorf("Expected %v, got %v", expected, result)
-		}
+		assert.Equal(t, expected, result)
 	})
 
 	t.Run("ReadBytes_InvalidLength", func(t *testing.T) {
@@ -1000,26 +777,20 @@ func TestReader(t *testing.T) {
 		reader := NewReader(bytes.NewReader(data))
 
 		_, err := reader.ReadBytes()
-		if err != ErrInvalidData {
-			t.Errorf("Expected ErrInvalidData, got %v", err)
-		}
+		require.ErrorIs(t, err, ErrInvalidData, "Expected ErrInvalidData, got %v", err)
 	})
 
 	t.Run("ErrorPaths", func(t *testing.T) {
 		t.Run("ReadUint32_Fails", func(t *testing.T) {
 			reader := NewReader(&failingReader{failAfter: 0})
 			_, err := reader.ReadUint32()
-			if err == nil {
-				t.Error("Expected error from ReadUint32, got nil")
-			}
+			require.Error(t, err, "Expected error from ReadUint32, got nil")
 		})
 
 		t.Run("ReadBytes_Length_Fails", func(t *testing.T) {
 			reader := NewReader(&failingReader{failAfter: 0})
 			_, err := reader.ReadBytes()
-			if err == nil {
-				t.Error("Expected error from ReadBytes length, got nil")
-			}
+			require.Error(t, err, "Expected error from ReadBytes length, got nil")
 		})
 
 		t.Run("ReadBytes_Data_Fails", func(t *testing.T) {
@@ -1030,9 +801,7 @@ func TestReader(t *testing.T) {
 				failAfter: 1, // Fail after reading length
 			})
 			_, err := reader.ReadBytes()
-			if err == nil {
-				t.Error("Expected error from ReadBytes data, got nil")
-			}
+			require.Error(t, err, "Expected error from ReadBytes data, got nil")
 		})
 	})
 }
@@ -1045,19 +814,13 @@ func TestDecodeFixedBytesInto(t *testing.T) {
 	// Test decoding into a fixed-size array
 	var result [5]byte
 	err := decoder.DecodeFixedBytesInto(result[:])
-	if err != nil {
-		t.Fatalf("DecodeFixedBytesInto failed: %v", err)
-	}
+	require.NoError(t, err, "DecodeFixedBytesInto failed")
 
 	expected := [5]byte{0x01, 0x02, 0x03, 0x04, 0x05}
-	if result != expected {
-		t.Errorf("expected %v, got %v", expected, result)
-	}
+	assert.Equal(t, expected, result)
 
 	// Test that decoder position advanced correctly (data + padding)
-	if decoder.Position() != 8 {
-		t.Errorf("expected position 8, got %d", decoder.Position())
-	}
+	assert.Equal(t, 8, decoder.Position(), "Expected position 8")
 }
 
 func TestDecodeFixedBytesIntoErrors(t *testing.T) {
@@ -1067,9 +830,7 @@ func TestDecodeFixedBytesIntoErrors(t *testing.T) {
 
 	var result [5]byte
 	err := decoder.DecodeFixedBytesInto(result[:])
-	if err != ErrUnexpectedEOF {
-		t.Errorf("expected ErrUnexpectedEOF, got %v", err)
-	}
+	require.ErrorIs(t, err, ErrUnexpectedEOF, "Expected ErrUnexpectedEOF, got %v", err)
 }
 
 func TestDecodeFixedBytesIntoZeroAllocation(t *testing.T) {
@@ -1079,14 +840,10 @@ func TestDecodeFixedBytesIntoZeroAllocation(t *testing.T) {
 
 	var result [8]byte
 	err := decoder.DecodeFixedBytesInto(result[:])
-	if err != nil {
-		t.Fatalf("DecodeFixedBytesInto failed: %v", err)
-	}
+	require.NoError(t, err, "DecodeFixedBytesInto failed")
 
 	expected := [8]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
-	if result != expected {
-		t.Errorf("expected %v, got %v", expected, result)
-	}
+	assert.Equal(t, expected, result)
 }
 
 func TestFixedBytesCompatibility(t *testing.T) {
@@ -1133,34 +890,23 @@ func TestFixedBytesCompatibility(t *testing.T) {
 			// Test DecodeFixedBytes (allocating path)
 			decoder1 := NewDecoder(tc.data)
 			result1, err := decoder1.DecodeFixedBytes(tc.size)
-			if err != nil {
-				t.Fatalf("DecodeFixedBytes failed: %v", err)
-			}
+			require.NoError(t, err, "DecodeFixedBytes failed")
 
 			// Test DecodeFixedBytesInto (zero-allocation path)
 			decoder2 := NewDecoder(tc.data)
 			result2 := make([]byte, tc.size)
 			err = decoder2.DecodeFixedBytesInto(result2)
-			if err != nil {
-				t.Fatalf("DecodeFixedBytesInto failed: %v", err)
-			}
+			require.NoError(t, err, "DecodeFixedBytesInto failed")
 
 			// Results should be identical
-			if !bytes.Equal(result1, result2) {
-				t.Errorf("Results differ: DecodeFixedBytes=%v, DecodeFixedBytesInto=%v", result1, result2)
-			}
+			assert.Equal(t, result1, result2)
 
 			// Both decoders should advance by same amount
-			if decoder1.Position() != decoder2.Position() {
-				t.Errorf("Position differs: DecodeFixedBytes=%d, DecodeFixedBytesInto=%d",
-					decoder1.Position(), decoder2.Position())
-			}
+			assert.Equal(t, decoder1.Position(), decoder2.Position())
 
 			// Verify expected data (excluding padding)
 			expected := tc.data[:tc.size]
-			if !bytes.Equal(result1, expected) {
-				t.Errorf("Expected %v, got %v", expected, result1)
-			}
+			assert.Equal(t, expected, result1)
 		})
 	}
 }
@@ -1181,36 +927,24 @@ func TestFixedBytesRoundTripCompatibility(t *testing.T) {
 			buf := make([]byte, 1024)
 			encoder := NewEncoder(buf)
 			err := encoder.EncodeFixedBytes(original)
-			if err != nil {
-				t.Fatalf("EncodeFixedBytes failed: %v", err)
-			}
+			require.NoError(t, err, "EncodeFixedBytes failed")
 			encoded := encoder.Bytes()
 
 			// Decode using DecodeFixedBytes
 			decoder1 := NewDecoder(encoded)
 			result1, err := decoder1.DecodeFixedBytes(size)
-			if err != nil {
-				t.Fatalf("DecodeFixedBytes failed: %v", err)
-			}
+			require.NoError(t, err, "DecodeFixedBytes failed")
 
 			// Decode using DecodeFixedBytesInto
 			decoder2 := NewDecoder(encoded)
 			result2 := make([]byte, size)
 			err = decoder2.DecodeFixedBytesInto(result2)
-			if err != nil {
-				t.Fatalf("DecodeFixedBytesInto failed: %v", err)
-			}
+			require.NoError(t, err, "DecodeFixedBytesInto failed")
 
 			// All should match original
-			if !bytes.Equal(original, result1) {
-				t.Errorf("DecodeFixedBytes: expected %v, got %v", original, result1)
-			}
-			if !bytes.Equal(original, result2) {
-				t.Errorf("DecodeFixedBytesInto: expected %v, got %v", original, result2)
-			}
-			if !bytes.Equal(result1, result2) {
-				t.Errorf("Results differ: DecodeFixedBytes=%v, DecodeFixedBytesInto=%v", result1, result2)
-			}
+			assert.Equal(t, original, result1)
+			assert.Equal(t, original, result2)
+			assert.Equal(t, result1, result2)
 		})
 	}
 }
@@ -1228,12 +962,8 @@ func TestFixedBytesErrorHandling(t *testing.T) {
 		err2 := decoder2.DecodeFixedBytesInto(result2)
 
 		// Both should return ErrUnexpectedEOF
-		if err1 != ErrUnexpectedEOF {
-			t.Errorf("DecodeFixedBytes: expected ErrUnexpectedEOF, got %v", err1)
-		}
-		if err2 != ErrUnexpectedEOF {
-			t.Errorf("DecodeFixedBytesInto: expected ErrUnexpectedEOF, got %v", err2)
-		}
+		require.ErrorIs(t, err1, ErrUnexpectedEOF, "DecodeFixedBytes: expected ErrUnexpectedEOF, got %v", err1)
+		require.ErrorIs(t, err2, ErrUnexpectedEOF, "DecodeFixedBytesInto: expected ErrUnexpectedEOF, got %v", err2)
 	})
 
 	t.Run("ZeroLength", func(t *testing.T) {
@@ -1247,17 +977,9 @@ func TestFixedBytesErrorHandling(t *testing.T) {
 		err2 := decoder2.DecodeFixedBytesInto(result2)
 
 		// Both should succeed with empty result
-		if err1 != nil {
-			t.Errorf("DecodeFixedBytes: expected no error, got %v", err1)
-		}
-		if err2 != nil {
-			t.Errorf("DecodeFixedBytesInto: expected no error, got %v", err2)
-		}
-		if len(result1) != 0 {
-			t.Errorf("DecodeFixedBytes: expected empty result, got %v", result1)
-		}
-		if len(result2) != 0 {
-			t.Errorf("DecodeFixedBytesInto: expected empty result, got %v", result2)
-		}
+		require.NoError(t, err1, "DecodeFixedBytes: expected no error, got %v", err1)
+		require.NoError(t, err2, "DecodeFixedBytesInto: expected no error, got %v", err2)
+		assert.Empty(t, result1, "DecodeFixedBytes: expected empty result")
+		assert.Empty(t, result2, "DecodeFixedBytesInto: expected empty result")
 	})
 }

@@ -13,6 +13,6 @@ const (
 // +xdr:generate  
 // Container struct with auto-detected union
 type NetworkMessage struct {
-	Type MessageType `xdr:"key"` // discriminant field
+	Type MessageType `` // discriminant field
 	Data []byte                 // auto-detected union field
 }

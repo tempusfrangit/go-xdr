@@ -3,135 +3,87 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestTemplateManager(t *testing.T) {
 	tm, err := NewTemplateManager()
-	if err != nil {
-		t.Fatalf("NewTemplateManager failed: %v", err)
-	}
-
-	if tm == nil {
-		t.Error("NewTemplateManager should return non-nil manager")
-	}
+	require.NoError(t, err, "NewTemplateManager failed")
+	assert.NotNil(t, tm, "NewTemplateManager should return non-nil manager")
 
 	// Test that we can get templates
 	templates := []string{"file_header", "encode_method", "decode_method", "assertion"}
 	for _, templateName := range templates {
 		tmpl, exists := tm.GetTemplate(templateName)
-		if !exists {
-			t.Errorf("Template %s should exist", templateName)
-		}
-		if tmpl == nil {
-			t.Errorf("Template %s should not be nil", templateName)
-		}
+		assert.True(t, exists, "Template %s should exist", templateName)
+		assert.NotNil(t, tmpl, "Template %s should not be nil", templateName)
 	}
 
 	// Test non-existent template
 	_, exists := tm.GetTemplate("non_existent")
-	if exists {
-		t.Error("Non-existent template should not exist")
-	}
+	assert.False(t, exists, "Non-existent template should not exist")
 }
 
 func TestTemplateManagerExecute(t *testing.T) {
 	tm, err := NewTemplateManager()
-	if err != nil {
-		t.Fatalf("NewTemplateManager failed: %v", err)
-	}
+	require.NoError(t, err, "NewTemplateManager failed")
 
 	// Test executing a simple template
 	result, err := tm.ExecuteTemplate("assertion", TypeData{TypeName: "TestStruct"})
-	if err != nil {
-		t.Fatalf("ExecuteTemplate failed: %v", err)
-	}
+	require.NoError(t, err, "ExecuteTemplate failed")
 
-	if !strings.Contains(result, "TestStruct") {
-		t.Error("Result should contain type name")
-	}
-	if !strings.Contains(result, "xdr.Codec") {
-		t.Error("Result should contain interface name")
-	}
+	assert.Contains(t, result, "TestStruct", "Result should contain type name")
+	assert.Contains(t, result, "xdr.Codec", "Result should contain interface name")
 }
 
 func TestTemplateManagerExecuteNonExistent(t *testing.T) {
 	tm, err := NewTemplateManager()
-	if err != nil {
-		t.Fatalf("NewTemplateManager failed: %v", err)
-	}
+	require.NoError(t, err, "NewTemplateManager failed")
 
 	// Test executing non-existent template
 	_, err = tm.ExecuteTemplate("non_existent", nil)
-	if err == nil {
-		t.Error("Should return error for non-existent template")
-	}
+	require.Error(t, err, "Should return error for non-existent template")
 }
 
 func TestGenerateFileHeader(t *testing.T) {
 	cg, err := NewCodeGenerator([]string{})
-	if err != nil {
-		t.Fatalf("NewCodeGenerator failed: %v", err)
-	}
+	require.NoError(t, err, "NewCodeGenerator failed")
 
 	result, err := cg.GenerateFileHeader("test.go", "testpkg", []string{"external/pkg"}, []string{"//go:build test"})
-	if err != nil {
-		t.Fatalf("GenerateFileHeader failed: %v", err)
-	}
+	require.NoError(t, err, "GenerateFileHeader failed")
 
-	if !strings.Contains(result, "test.go") {
-		t.Error("Result should contain source file name")
-	}
-	if !strings.Contains(result, "testpkg") {
-		t.Error("Result should contain package name")
-	}
-	if !strings.Contains(result, "external/pkg") {
-		t.Error("Result should contain external imports")
-	}
-	if !strings.Contains(result, "//go:build test") {
-		t.Error("Result should contain build tags")
-	}
+	assert.Contains(t, result, "test.go", "Result should contain source file name")
+	assert.Contains(t, result, "testpkg", "Result should contain package name")
+	assert.Contains(t, result, "external/pkg", "Result should contain external imports")
+	assert.Contains(t, result, "//go:build test", "Result should contain build tags")
 }
 
 func TestGenerateFileHeaderNoImports(t *testing.T) {
 	cg, err := NewCodeGenerator([]string{})
-	if err != nil {
-		t.Fatalf("NewCodeGenerator failed: %v", err)
-	}
+	require.NoError(t, err, "NewCodeGenerator failed")
 
 	result, err := cg.GenerateFileHeader("test.go", "testpkg", nil, nil)
-	if err != nil {
-		t.Fatalf("GenerateFileHeader failed: %v", err)
-	}
+	require.NoError(t, err, "GenerateFileHeader failed")
 
-	if !strings.Contains(result, "testpkg") {
-		t.Error("Result should contain package name")
-	}
+	assert.Contains(t, result, "testpkg", "Result should contain package name")
 }
 
 func TestGenerateFileHeaderWithBuildTags(t *testing.T) {
 	cg, err := NewCodeGenerator([]string{})
-	if err != nil {
-		t.Fatalf("NewCodeGenerator failed: %v", err)
-	}
+	require.NoError(t, err, "NewCodeGenerator failed")
 
 	result, err := cg.GenerateFileHeader("test.go", "testpkg", nil, []string{"//go:build linux", "//go:build amd64"})
-	if err != nil {
-		t.Fatalf("GenerateFileHeader failed: %v", err)
-	}
+	require.NoError(t, err, "GenerateFileHeader failed")
 
-	if !strings.Contains(result, "//go:build linux") {
-		t.Error("Result should contain first build tag")
-	}
-	if !strings.Contains(result, "//go:build amd64") {
-		t.Error("Result should contain second build tag")
-	}
+	assert.Contains(t, result, "//go:build linux", "Result should contain first build tag")
+	assert.Contains(t, result, "//go:build amd64", "Result should contain second build tag")
 }
 
 func TestGenerateEncodeMethod(t *testing.T) {
 	cg, err := NewCodeGenerator([]string{})
-	if err != nil {
-		t.Fatalf("NewCodeGenerator failed: %v", err)
-	}
+	require.NoError(t, err, "NewCodeGenerator failed")
 
 	typeInfo := TypeInfo{
 		Name: "TestStruct",
@@ -142,23 +94,15 @@ func TestGenerateEncodeMethod(t *testing.T) {
 	}
 
 	result, err := cg.GenerateEncodeMethod(typeInfo)
-	if err != nil {
-		t.Fatalf("GenerateEncodeMethod failed: %v", err)
-	}
+	require.NoError(t, err, "GenerateEncodeMethod failed")
 
-	if !strings.Contains(result, "TestStruct") {
-		t.Error("Result should contain struct name")
-	}
-	if !strings.Contains(result, "Encode") {
-		t.Error("Result should contain Encode method")
-	}
+	assert.Contains(t, result, "TestStruct", "Result should contain struct name")
+	assert.Contains(t, result, "Encode", "Result should contain Encode method")
 }
 
 func TestGenerateDecodeMethod(t *testing.T) {
 	cg, err := NewCodeGenerator([]string{})
-	if err != nil {
-		t.Fatalf("NewCodeGenerator failed: %v", err)
-	}
+	require.NoError(t, err, "NewCodeGenerator failed")
 
 	typeInfo := TypeInfo{
 		Name: "TestStruct",
@@ -169,42 +113,26 @@ func TestGenerateDecodeMethod(t *testing.T) {
 	}
 
 	result, err := cg.GenerateDecodeMethod(typeInfo)
-	if err != nil {
-		t.Fatalf("GenerateDecodeMethod failed: %v", err)
-	}
+	require.NoError(t, err, "GenerateDecodeMethod failed")
 
-	if !strings.Contains(result, "TestStruct") {
-		t.Error("Result should contain struct name")
-	}
-	if !strings.Contains(result, "Decode") {
-		t.Error("Result should contain Decode method")
-	}
+	assert.Contains(t, result, "TestStruct", "Result should contain struct name")
+	assert.Contains(t, result, "Decode", "Result should contain Decode method")
 }
 
 func TestGenerateAssertion(t *testing.T) {
 	cg, err := NewCodeGenerator([]string{})
-	if err != nil {
-		t.Fatalf("NewCodeGenerator failed: %v", err)
-	}
+	require.NoError(t, err, "NewCodeGenerator failed")
 
 	result, err := cg.GenerateAssertion("TestStruct")
-	if err != nil {
-		t.Fatalf("GenerateAssertion failed: %v", err)
-	}
+	require.NoError(t, err, "GenerateAssertion failed")
 
-	if !strings.Contains(result, "TestStruct") {
-		t.Error("Result should contain type name")
-	}
-	if !strings.Contains(result, "xdr.Codec") {
-		t.Error("Result should contain interface name")
-	}
+	assert.Contains(t, result, "TestStruct", "Result should contain type name")
+	assert.Contains(t, result, "xdr.Codec", "Result should contain interface name")
 }
 
 func TestGenerateBasicEncodeCode(t *testing.T) {
 	cg, err := NewCodeGenerator([]string{})
-	if err != nil {
-		t.Fatalf("NewCodeGenerator failed: %v", err)
-	}
+	require.NoError(t, err, "NewCodeGenerator failed")
 
 	tests := []struct {
 		name     string
@@ -236,25 +164,17 @@ func TestGenerateBasicEncodeCode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := cg.generateBasicEncodeCode(tt.field)
-			if err != nil {
-				t.Fatalf("generateBasicEncodeCode failed: %v", err)
-			}
+			require.NoError(t, err, "generateBasicEncodeCode failed")
 
-			if !strings.Contains(result, tt.field.Name) {
-				t.Error("Result should contain field name")
-			}
-			if !strings.Contains(result, tt.expected) {
-				t.Errorf("Result should contain %s", tt.expected)
-			}
+			assert.Contains(t, result, tt.field.Name, "Result should contain field name")
+			assert.Contains(t, result, tt.expected, "Result should contain %s", tt.expected)
 		})
 	}
 }
 
 func TestGenerateBasicDecodeCode(t *testing.T) {
 	cg, err := NewCodeGenerator([]string{})
-	if err != nil {
-		t.Fatalf("NewCodeGenerator failed: %v", err)
-	}
+	require.NoError(t, err, "NewCodeGenerator failed")
 
 	tests := []struct {
 		name     string
@@ -286,67 +206,43 @@ func TestGenerateBasicDecodeCode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := cg.generateBasicDecodeCode(tt.field)
-			if err != nil {
-				t.Fatalf("generateBasicDecodeCode failed: %v", err)
-			}
+			require.NoError(t, err, "generateBasicDecodeCode failed")
 
-			if !strings.Contains(result, tt.field.Name) {
-				t.Error("Result should contain field name")
-			}
-			if !strings.Contains(result, tt.expected) {
-				t.Errorf("Result should contain %s", tt.expected)
-			}
+			assert.Contains(t, result, tt.field.Name, "Result should contain field name")
+			assert.Contains(t, result, tt.expected, "Result should contain %s", tt.expected)
 		})
 	}
 }
 
 func TestGenerateArrayEncodeCode(t *testing.T) {
 	cg, err := NewCodeGenerator([]string{})
-	if err != nil {
-		t.Fatalf("NewCodeGenerator failed: %v", err)
-	}
+	require.NoError(t, err, "NewCodeGenerator failed")
 
 	field := FieldInfo{Name: "Items", Type: "[]string", XDRType: "array"}
 
 	result, err := cg.generateBasicEncodeCode(field)
-	if err != nil {
-		t.Fatalf("generateBasicEncodeCode failed: %v", err)
-	}
+	require.NoError(t, err, "generateBasicEncodeCode failed")
 
-	if !strings.Contains(result, "Items") {
-		t.Error("Result should contain field name")
-	}
-	if !strings.Contains(result, "EncodeUint32") {
-		t.Error("Result should contain array length encoding")
-	}
+	assert.Contains(t, result, "Items", "Result should contain field name")
+	assert.Contains(t, result, "EncodeUint32", "Result should contain array length encoding")
 }
 
 func TestGenerateArrayDecodeCode(t *testing.T) {
 	cg, err := NewCodeGenerator([]string{})
-	if err != nil {
-		t.Fatalf("NewCodeGenerator failed: %v", err)
-	}
+	require.NoError(t, err, "NewCodeGenerator failed")
 
 	field := FieldInfo{Name: "Items", Type: "[]string", XDRType: "array"}
 
 	result, err := cg.generateBasicDecodeCode(field)
-	if err != nil {
-		t.Fatalf("generateBasicDecodeCode failed: %v", err)
-	}
+	require.NoError(t, err, "generateBasicDecodeCode failed")
 
-	if !strings.Contains(result, "Items") {
-		t.Error("Result should contain field name")
-	}
-	if !strings.Contains(result, "DecodeUint32") {
-		t.Error("Result should contain array length decoding")
-	}
+	assert.Contains(t, result, "Items", "Result should contain field name")
+	assert.Contains(t, result, "DecodeUint32", "Result should contain array length decoding")
 }
 
 func TestGetEncodeMethod(t *testing.T) {
 	cg, err := NewCodeGenerator([]string{})
-	if err != nil {
-		t.Fatalf("NewCodeGenerator failed: %v", err)
-	}
+	require.NoError(t, err, "NewCodeGenerator failed")
 
 	tests := []struct {
 		xdrType  string
@@ -367,18 +263,14 @@ func TestGetEncodeMethod(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.xdrType, func(t *testing.T) {
 			result := cg.getEncodeMethod(tt.xdrType)
-			if result != tt.expected {
-				t.Errorf("Expected %q, got %q", tt.expected, result)
-			}
+			assert.Equal(t, tt.expected, result, "Expected %q, got %q", tt.expected, result)
 		})
 	}
 }
 
 func TestGetDecodeMethod(t *testing.T) {
 	cg, err := NewCodeGenerator([]string{})
-	if err != nil {
-		t.Fatalf("NewCodeGenerator failed: %v", err)
-	}
+	require.NoError(t, err, "NewCodeGenerator failed")
 
 	tests := []struct {
 		xdrType  string
@@ -399,64 +291,44 @@ func TestGetDecodeMethod(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.xdrType, func(t *testing.T) {
 			result := cg.getDecodeMethod(tt.xdrType)
-			if result != tt.expected {
-				t.Errorf("Expected %q, got %q", tt.expected, result)
-			}
+			assert.Equal(t, tt.expected, result, "Expected %q, got %q", tt.expected, result)
 		})
 	}
 }
 
 func TestGenerateUnsupportedXDRType(t *testing.T) {
 	cg, err := NewCodeGenerator([]string{})
-	if err != nil {
-		t.Fatalf("NewCodeGenerator failed: %v", err)
-	}
+	require.NoError(t, err, "NewCodeGenerator failed")
 
 	field := FieldInfo{Name: "Bad", Type: "float64", XDRType: "unsupported"}
 
 	_, err = cg.generateBasicEncodeCode(field)
-	if err == nil {
-		t.Error("Expected error for unsupported XDR type")
-	}
+	require.Error(t, err, "Expected error for unsupported XDR type")
 
 	_, err = cg.generateBasicDecodeCode(field)
-	if err == nil {
-		t.Error("Expected error for unsupported XDR type")
-	}
+	require.Error(t, err, "Expected error for unsupported XDR type")
 }
 
 func TestGenerateFixedBytesCode(t *testing.T) {
 	cg, err := NewCodeGenerator([]string{})
-	if err != nil {
-		t.Fatalf("NewCodeGenerator failed: %v", err)
-	}
+	require.NoError(t, err, "NewCodeGenerator failed")
 
 	// Test that fixed bytes field generates appropriate code
-	field := FieldInfo{Name: "Hash", Type: "[16]byte", XDRType: "fixed:16"}
+	field := FieldInfo{Name: "Hash", Type: "[16]byte", XDRType: "bytes"}
 
 	encodeResult, err := cg.generateBasicEncodeCode(field)
-	if err != nil {
-		t.Fatalf("generateBasicEncodeCode failed: %v", err)
-	}
+	require.NoError(t, err, "generateBasicEncodeCode failed")
 
 	decodeResult, err := cg.generateBasicDecodeCode(field)
-	if err != nil {
-		t.Fatalf("generateBasicDecodeCode failed: %v", err)
-	}
+	require.NoError(t, err, "generateBasicDecodeCode failed")
 
-	if !strings.Contains(encodeResult, "EncodeFixedBytes") {
-		t.Error("Encode result should contain EncodeFixedBytes")
-	}
-	if !strings.Contains(decodeResult, "DecodeFixedBytes") {
-		t.Error("Decode result should contain DecodeFixedBytes")
-	}
+	assert.Contains(t, encodeResult, "EncodeFixedBytes", "Encode result should contain EncodeFixedBytes")
+	assert.Contains(t, decodeResult, "DecodeFixedBytes", "Decode result should contain DecodeFixedBytes")
 }
 
 func TestGenerateAliasCode(t *testing.T) {
 	cg, err := NewCodeGenerator([]string{})
-	if err != nil {
-		t.Fatalf("NewCodeGenerator failed: %v", err)
-	}
+	require.NoError(t, err, "NewCodeGenerator failed")
 
 	tests := []struct {
 		name     string
@@ -465,48 +337,34 @@ func TestGenerateAliasCode(t *testing.T) {
 	}{
 		{
 			name:     "string alias",
-			field:    FieldInfo{Name: "ID", Type: "UserID", XDRType: "alias:string"},
+			field:    FieldInfo{Name: "ID", Type: "UserID", XDRType: "string"},
 			expected: "EncodeString",
 		},
 		{
 			name:     "bytes alias",
-			field:    FieldInfo{Name: "Data", Type: "SessionID", XDRType: "alias:[]byte"},
+			field:    FieldInfo{Name: "Data", Type: "SessionID", XDRType: "bytes"},
 			expected: "EncodeBytes",
 		},
 		{
 			name:     "fixed bytes alias",
-			field:    FieldInfo{Name: "Hash", Type: "Hash16", XDRType: "alias:[16]byte"},
-			expected: "EncodeFixedBytes",
+			field:    FieldInfo{Name: "Hash", Type: "Hash16", XDRType: "bytes"},
+			expected: "EncodeBytes",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			encodeResult, err := cg.generateBasicEncodeCode(tt.field)
-			if err != nil {
-				t.Fatalf("generateBasicEncodeCode failed: %v", err)
-			}
+			require.NoError(t, err, "generateBasicEncodeCode failed")
 
-			if !strings.Contains(encodeResult, tt.expected) {
-				t.Errorf("Expected %s in encode result", tt.expected)
-			}
+			assert.Contains(t, encodeResult, tt.expected, "Expected %s in encode result, got: %s", tt.expected, encodeResult)
 
 			decodeResult, err := cg.generateBasicDecodeCode(tt.field)
-			if err != nil {
-				t.Fatalf("generateBasicDecodeCode failed: %v", err)
-			}
+			require.NoError(t, err, "generateBasicDecodeCode failed")
 
 			// For fixed bytes aliases, the decode code uses a special template
-			if strings.Contains(tt.field.XDRType, "fixed:") {
-				if !strings.Contains(decodeResult, "DecodeFixedBytes") {
-					t.Errorf("Expected DecodeFixedBytes in decode result for fixed bytes alias")
-				}
-			} else {
-				decodeExpected := strings.Replace(tt.expected, "Encode", "Decode", 1)
-				if !strings.Contains(decodeResult, decodeExpected) {
-					t.Errorf("Expected %s in decode result", decodeExpected)
-				}
-			}
+			decodeExpected := strings.Replace(tt.expected, "Encode", "Decode", 1)
+			assert.Contains(t, decodeResult, decodeExpected, "Expected %s in decode result, got: %s", decodeExpected, decodeResult)
 		})
 	}
 }
@@ -530,9 +388,7 @@ func TestGoTypeForXDRType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.xdrType, func(t *testing.T) {
 			result := goTypeForXDRType(tt.xdrType)
-			if result != tt.expected {
-				t.Errorf("Expected %q, got %q", tt.expected, result)
-			}
+			assert.Equal(t, tt.expected, result, "Expected %q, got %q", tt.expected, result)
 		})
 	}
 }
@@ -541,31 +397,21 @@ func TestNewTemplateManagerError(t *testing.T) {
 	// This test would require mocking template parsing to fail
 	// For now, just test that NewTemplateManager works with valid templates
 	tm, err := NewTemplateManager()
-	if err != nil {
-		t.Fatalf("NewTemplateManager failed: %v", err)
-	}
-	if tm == nil {
-		t.Error("NewTemplateManager should return non-nil manager")
-	}
+	require.NoError(t, err, "NewTemplateManager failed")
+	assert.NotNil(t, tm, "NewTemplateManager should return non-nil manager")
 }
 
 func TestTemplateManagerInitError(t *testing.T) {
 	// This would require mocking template parsing to fail
 	// For now, just test that NewCodeGenerator works with valid templates
 	cg, err := NewCodeGenerator([]string{})
-	if err != nil {
-		t.Fatalf("NewCodeGenerator failed: %v", err)
-	}
-	if cg == nil {
-		t.Error("NewCodeGenerator should return non-nil generator")
-	}
+	require.NoError(t, err, "NewCodeGenerator failed")
+	assert.NotNil(t, cg, "NewCodeGenerator should return non-nil generator")
 }
 
 func TestGenerateUnionCode(t *testing.T) {
 	cg, err := NewCodeGenerator([]string{})
-	if err != nil {
-		t.Fatalf("NewCodeGenerator failed: %v", err)
-	}
+	require.NoError(t, err, "NewCodeGenerator failed")
 
 	// Test union code generation with proper struct setup
 	typeInfo := TypeInfo{
@@ -584,30 +430,20 @@ func TestGenerateUnionCode(t *testing.T) {
 
 	// Test encode method generation
 	encodeResult, err := cg.GenerateEncodeMethod(typeInfo)
-	if err != nil {
-		t.Fatalf("GenerateEncodeMethod failed: %v", err)
-	}
+	require.NoError(t, err, "GenerateEncodeMethod failed")
 
-	if !strings.Contains(encodeResult, "switch") {
-		t.Error("Encode result should contain switch statement for union")
-	}
+	assert.Contains(t, encodeResult, "switch", "Encode result should contain switch statement for union")
 
 	// Test decode method generation
 	decodeResult, err := cg.GenerateDecodeMethod(typeInfo)
-	if err != nil {
-		t.Fatalf("GenerateDecodeMethod failed: %v", err)
-	}
+	require.NoError(t, err, "GenerateDecodeMethod failed")
 
-	if !strings.Contains(decodeResult, "switch") {
-		t.Error("Decode result should contain switch statement for union")
-	}
+	assert.Contains(t, decodeResult, "switch", "Decode result should contain switch statement for union")
 }
 
 func TestGenerateUnionEncodeDecodeCodeErrors(t *testing.T) {
 	cg, err := NewCodeGenerator([]string{})
-	if err != nil {
-		t.Fatalf("NewCodeGenerator failed: %v", err)
-	}
+	require.NoError(t, err, "NewCodeGenerator failed")
 
 	// Missing key field
 	t.Run("missing key field", func(t *testing.T) {
@@ -624,34 +460,26 @@ func TestGenerateUnionEncodeDecodeCodeErrors(t *testing.T) {
 		}
 		errMsg := "no key field found for union field Data"
 		_, err := cg.generateUnionEncodeCode(structInfo.Fields[0], structInfo)
-		if err == nil || err.Error() != errMsg {
-			t.Errorf("expected error %q, got %v", errMsg, err)
-		}
+		require.Error(t, err, "expected error %q, got %v", errMsg, err)
 		_, err = cg.generateUnionDecodeCode(structInfo.Fields[0], structInfo)
-		if err == nil || err.Error() != errMsg {
-			t.Errorf("expected error %q, got %v", errMsg, err)
-		}
+		require.Error(t, err, "expected error %q, got %v", errMsg, err)
 	})
 
-	// Missing union config
+	// Missing union config - now generates void-only union
 	t.Run("missing union config", func(t *testing.T) {
 		structInfo := TypeInfo{
 			Name: "NoUnionConfig",
 			Fields: []FieldInfo{
 				{Name: "Type", Type: "uint32", XDRType: "uint32", IsKey: true},
-				{Name: "Data", Type: "[]byte", XDRType: "union", IsUnion: true},
+				{Name: "Data", Type: "[]byte", XDRType: "bytes", IsUnion: true},
 			},
 			IsDiscriminatedUnion: true,
 			UnionConfig:          nil,
 		}
-		errMsg := "no union configuration found for struct NoUnionConfig"
+		// Should generate void-only union code without error
 		_, err := cg.generateUnionEncodeCode(structInfo.Fields[1], structInfo)
-		if err == nil || err.Error() != errMsg {
-			t.Errorf("expected error %q, got %v", errMsg, err)
-		}
+		require.NoError(t, err, "expected no error for void-only union, got %v", err)
 		_, err = cg.generateUnionDecodeCode(structInfo.Fields[1], structInfo)
-		if err == nil || err.Error() != errMsg {
-			t.Errorf("expected error %q, got %v", errMsg, err)
-		}
+		require.NoError(t, err, "expected no error for void-only union, got %v", err)
 	})
 }

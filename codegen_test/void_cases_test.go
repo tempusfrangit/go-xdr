@@ -13,7 +13,7 @@ const (
 // Test 1: All void cases - auto-detected, default=nil optional
 // +xdr:generate
 type AllVoidUnion struct {
-    Status StatusCode `xdr:"key"` // discriminant
+    Status StatusCode `` // discriminant
     Data   []byte                 // auto-detected union field
     // All StatusCode constants without payload structs -> void cases
 }

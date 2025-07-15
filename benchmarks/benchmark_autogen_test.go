@@ -45,15 +45,13 @@ const (
 	BenchmarkStatusPending BenchmarkStatus = 2
 )
 
-// +xdr:generate
+// +xdr:union,key=Status
 type BenchmarkResult struct {
-	Status BenchmarkStatus `xdr:"key"` // discriminant
-	Data   []byte                      // auto-detected as union payload
+	Status BenchmarkStatus // discriminant
+	Data   []byte          // auto-detected as union payload
 }
 
-// +xdr:generate
-// +xdr:union=BenchmarkResult
-// +xdr:case=BenchmarkStatusSuccess
+// +xdr:payload,union=BenchmarkResult,discriminant=BenchmarkStatusSuccess
 type BenchmarkSuccessResult struct {
 	Message string // auto-detected as string
 }
@@ -67,15 +65,13 @@ const (
 	BenchmarkMsgVoid   BenchmarkMsgType = 3
 )
 
-// +xdr:generate
+// +xdr:union,key=Type
 type BenchmarkMessage struct {
-	Type    BenchmarkMsgType `xdr:"key"` // discriminant
-	Payload []byte                       // auto-detected as union payload
+	Type    BenchmarkMsgType // discriminant
+	Payload []byte           // auto-detected as union payload
 }
 
-// +xdr:generate
-// +xdr:union=BenchmarkMessage
-// +xdr:case=BenchmarkMsgText
+// +xdr:payload,union=BenchmarkMessage,discriminant=BenchmarkMsgText
 type BenchmarkTextPayload struct {
 	Content string // auto-detected as string
 	Sender  string // auto-detected as string
@@ -90,15 +86,13 @@ const (
 	BenchmarkOpDelete BenchmarkOpType = 3
 )
 
-// +xdr:generate
+// +xdr:union,key=OpType
 type BenchmarkOperation struct {
-	OpType BenchmarkOpType `xdr:"key"` // discriminant
-	Data   []byte                      // auto-detected as union payload
+	OpType BenchmarkOpType // discriminant
+	Data   []byte          // auto-detected as union payload
 }
 
-// +xdr:generate
-// +xdr:union=BenchmarkOperation
-// +xdr:case=BenchmarkOpRead
+// +xdr:payload,union=BenchmarkOperation,discriminant=BenchmarkOpRead
 type BenchmarkReadResult struct {
 	Success bool   // auto-detected as bool
 	Data    []byte // auto-detected as bytes

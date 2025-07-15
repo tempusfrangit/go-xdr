@@ -16,12 +16,12 @@ const (
 	StatusPending Status = 2
 )
 
-// +xdr:generate
+// +xdr:union,key=Status
 // OperationResult demonstrates auto-detected discriminated union
 // StatusError and StatusPending are automatically void cases (no payload structs)
 type OperationResult struct {
-	Status Status `xdr:"key"` // discriminant
-	Data   []byte              // auto-detected union field
+	Status Status // discriminant
+	Data   []byte // auto-detected union field
 }
 
 // +xdr:generate
@@ -40,25 +40,22 @@ const (
 	MessageTypeVoid   MessageType = 3
 )
 
-// +xdr:generate
-// +xdr:union=MessageType
-// +xdr:case=MessageTypeText
-// +xdr:case=MessageTypeBinary
+// +xdr:union,key=Type,default=MessageTypeVoid
 // NetworkMessage demonstrates discriminated union with different payload types
 // MessageTypeVoid is automatically a void case
 type NetworkMessage struct {
-	Type    MessageType `xdr:"key"`
-	Payload []byte
+	Type    MessageType // discriminant
+	Payload []byte      // auto-detected union field
 }
 
-// +xdr:generate
+// +xdr:payload,union=NetworkMessage,discriminant=MessageTypeText
 // TextPayload for text messages
 type TextPayload struct {
 	Content string
 	Sender  string
 }
 
-// +xdr:generate
+// +xdr:payload,union=NetworkMessage,discriminant=MessageTypeBinary
 // BinaryPayload for binary messages
 type BinaryPayload struct {
 	Data     []byte
@@ -75,14 +72,12 @@ const (
 	OpTypeDelete OpType = 3
 )
 
-// +xdr:generate
-// +xdr:union=OpType
-// +xdr:case=OpTypeRead
+// +xdr:union,key=OpType
 // FileOperation demonstrates conditional result data
 // OpTypeWrite and OpTypeDelete are automatically void cases
 type FileOperation struct {
-	OpType OpType `xdr:"key"`
-	Result []byte
+	OpType OpType // discriminant
+	Result []byte // auto-detected union field
 }
 
 // +xdr:generate

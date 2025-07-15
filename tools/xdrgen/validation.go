@@ -3,11 +3,10 @@ package main
 import (
 	"fmt"
 	"go/ast"
-	"strings"
 )
 
 // validateUnionConfiguration validates discriminated union configuration
-func validateUnionConfiguration(types []TypeInfo, constants map[string]string, typeDefs map[string]ast.Node, file *ast.File) []ValidationError {
+func validateUnionConfiguration(types []TypeInfo, constants map[string]ConstantInfo, typeDefs map[string]ast.Node, file *ast.File) []ValidationError {
 	var errors []ValidationError
 
 	// Helper to resolve type aliases recursively
@@ -17,7 +16,26 @@ func validateUnionConfiguration(types []TypeInfo, constants map[string]string, t
 		if !ok {
 			return nil, "notype"
 		}
-		switch t := node.(type) {
+
+		// Extract the actual type from GenDecl if needed
+		var actualType ast.Expr
+		if genDecl, ok := node.(*ast.GenDecl); ok {
+			for _, spec := range genDecl.Specs {
+				if typeSpec, ok := spec.(*ast.TypeSpec); ok && typeSpec.Name.Name == typeName {
+					actualType = typeSpec.Type
+					break
+				}
+			}
+		} else {
+			// Fallback for cases where it's not a GenDecl
+			actualType = node.(ast.Expr)
+		}
+
+		if actualType == nil {
+			return nil, "notype"
+		}
+
+		switch t := actualType.(type) {
 		case *ast.StructType:
 			return t, "struct"
 		case *ast.Ident:
@@ -91,7 +109,7 @@ func validateUnionConfiguration(types []TypeInfo, constants map[string]string, t
 		}
 
 		// Validate that the key field type is a uint32 alias
-		keyFieldNode, exists := typeDefs[keyField.Type]
+		keyFieldGenDecl, exists := typeDefs[keyField.Type]
 		if !exists {
 			errors = append(errors, ValidationError{
 				Location: fmt.Sprintf("union=%s,key=%s", containerType, keyField.Name),
@@ -100,20 +118,42 @@ func validateUnionConfiguration(types []TypeInfo, constants map[string]string, t
 			continue
 		}
 
-		// Check that the key field type is a uint32 alias
-		if ident, ok := keyFieldNode.(*ast.Ident); ok {
-			// This is a type alias, check if it's uint32
-			if ident.Name != "uint32" {
-				errors = append(errors, ValidationError{
-					Location: fmt.Sprintf("union=%s,key=%s", containerType, keyField.Name),
-					Message:  fmt.Sprintf("key field type %s must be a uint32 alias, got %s", keyField.Type, ident.Name),
-				})
-				continue
+		// Extract the actual type from the GenDecl
+		var keyFieldNode ast.Expr
+		if genDecl, ok := keyFieldGenDecl.(*ast.GenDecl); ok {
+			for _, spec := range genDecl.Specs {
+				if typeSpec, ok := spec.(*ast.TypeSpec); ok && typeSpec.Name.Name == keyField.Type {
+					keyFieldNode = typeSpec.Type
+					break
+				}
 			}
 		} else {
+			// Fallback for cases where it's not a GenDecl
+			keyFieldNode = keyFieldGenDecl.(ast.Expr)
+		}
+
+		if keyFieldNode == nil {
+			errors = append(errors, ValidationError{
+				Location: fmt.Sprintf("union=%s,key=%s", containerType, keyField.Name),
+				Message:  fmt.Sprintf("could not extract type information for key field type %s", keyField.Type),
+			})
+			continue
+		}
+
+		// Check that the key field type is a uint32 alias
+		ident, ok := keyFieldNode.(*ast.Ident)
+		if !ok {
 			errors = append(errors, ValidationError{
 				Location: fmt.Sprintf("union=%s,key=%s", containerType, keyField.Name),
 				Message:  fmt.Sprintf("key field type %s must be a uint32 alias", keyField.Type),
+			})
+			continue
+		}
+		// This is a type alias, check if it's uint32
+		if ident.Name != "uint32" {
+			errors = append(errors, ValidationError{
+				Location: fmt.Sprintf("union=%s,key=%s", containerType, keyField.Name),
+				Message:  fmt.Sprintf("key field type %s must be a uint32 alias, got %s", keyField.Type, ident.Name),
 			})
 			continue
 		}
@@ -202,40 +242,8 @@ func validateUnionConfiguration(types []TypeInfo, constants map[string]string, t
 	return errors
 }
 
-// validateCompletePackageState validates the complete package state after all aggregation and mapping
-func validateCompletePackageState(allContainerStructs map[string]*TypeInfo, allUnionComments map[string]*UnionConfig, allConstants map[string]string, allTypeDefs map[string]ast.Node) error {
-	var errors []string
-
-	// Validate that all union comments reference existing containers
-	for containerType := range allUnionComments {
-		if _, exists := allContainerStructs[containerType]; !exists {
-			errors = append(errors, fmt.Sprintf("Union comment references unknown container struct %s", containerType))
-		}
-	}
-
-	// Note: Containers without union configs are valid (all-void unions)
-	// No validation needed here - having key/union fields without payload structs is perfectly fine
-
-	// Validate that all constants referenced in union cases exist
-	for containerType, unionConfig := range allUnionComments {
-		for constantName := range unionConfig.Cases {
-			if _, exists := allConstants[constantName]; !exists {
-				errors = append(errors, fmt.Sprintf("Union case %s in container %s references unknown constant %s", constantName, containerType, constantName))
-			}
-		}
-	}
-
-	// Report all errors at once
-	if len(errors) > 0 {
-		return fmt.Errorf("Package validation errors:\n%s", strings.Join(errors, "\n"))
-	}
-
-	debugf("Package validation passed: %d containers, %d union configs", len(allContainerStructs), len(allUnionComments))
-	return nil
-}
-
 // validateDiscriminatedUnions validates that discriminated union structures are correctly formed
-func validateDiscriminatedUnions(types []TypeInfo, constants map[string]string) error {
+func validateDiscriminatedUnions(types []TypeInfo, constants map[string]ConstantInfo) error {
 	for _, typeInfo := range types {
 		if typeInfo.IsDiscriminatedUnion {
 			keyCount := 0
@@ -257,7 +265,7 @@ func validateDiscriminatedUnions(types []TypeInfo, constants map[string]string) 
 
 			// Validate discriminated union structure
 			if keyCount != 1 {
-				return fmt.Errorf("Discriminated union struct %s must have exactly one key field, found %d", typeInfo.Name, keyCount)
+				return fmt.Errorf("discriminated union struct %s must have exactly one key field, found %d", typeInfo.Name, keyCount)
 			}
 
 			// Check if this is an all-void union (no union field needed)
@@ -276,12 +284,12 @@ func validateDiscriminatedUnions(types []TypeInfo, constants map[string]string) 
 			debugf("AllCasesVoid for %s: %v", typeInfo.Name, allCasesVoid)
 
 			if unionCount == 0 {
-				return fmt.Errorf("Discriminated union struct %s must have exactly one union field", typeInfo.Name)
+				return fmt.Errorf("discriminated union struct %s must have exactly one union field", typeInfo.Name)
 			}
 
 			// Validate ordered pair requirement: key must be immediately followed by union (only if union field exists)
 			if unionCount > 0 && unionIndex != keyIndex+1 {
-				return fmt.Errorf("Discriminated union struct %s: key field must be immediately followed by union field", typeInfo.Name)
+				return fmt.Errorf("discriminated union struct %s: key field must be immediately followed by union field", typeInfo.Name)
 			}
 
 			debugf("Validated discriminated union %s: %d key, %d union fields", typeInfo.Name, keyCount, unionCount)

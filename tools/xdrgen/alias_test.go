@@ -1,8 +1,10 @@
 package main
 
 import (
-	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestArrayAliasResolution(t *testing.T) {
@@ -62,18 +64,12 @@ func TestArrayAliasResolution(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cg, err := NewCodeGenerator([]string{})
-			if err != nil {
-				t.Fatalf("NewCodeGenerator failed: %v", err)
-			}
+			require.NoError(t, err, "NewCodeGenerator failed")
 
 			result, err := cg.generateBasicEncodeCode(tt.field)
-			if err != nil {
-				t.Fatalf("generateBasicEncodeCode failed: %v", err)
-			}
+			require.NoError(t, err, "generateBasicEncodeCode failed")
 
-			if !strings.Contains(result, tt.expectedCode) {
-				t.Errorf("%s: expected code to contain %q, got:\n%s", tt.description, tt.expectedCode, result)
-			}
+			assert.Contains(t, result, tt.expectedCode, "%s: expected code to contain %q", tt.description, tt.expectedCode)
 		})
 	}
 }

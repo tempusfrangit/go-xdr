@@ -15,6 +15,7 @@
 !*.go
 !go.sum
 !go.mod
+!go.work
 
 !README.md
 !BENCHMARK.md
@@ -38,6 +39,7 @@
 !/tools/**/*.go
 !/tools/**/go.mod
 !/tools/**/go.sum
+!/tools/**/.golangci.yml
 !/tools/**/xdrgen/templates/*.tmpl
 
 # ...even if they are in subdirectories

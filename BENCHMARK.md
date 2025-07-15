@@ -201,9 +201,9 @@ The `DecodeFixedBytesInto` method provides zero-allocation decoding for fixed-si
 
 | Type | Encode | Decode | Marshal | Unmarshal |
 |------|--------|--------|---------|-----------|
-| Person | 12.92 ns/op | 57.18 ns/op | 150.8 ns/op | 72.99 ns/op |
-| Config | 42.23 ns/op | 181.6 ns/op | 155.4 ns/op | 198.3 ns/op |
-| Company | 61.16 ns/op | 308.5 ns/op | 261.2 ns/op | 336.2 ns/op |
+| Person | 11.91 ns/op | 54.75 ns/op | 142.9 ns/op | 68.62 ns/op |
+| Config | 39.93 ns/op | 161.2 ns/op | 140.4 ns/op | 198.4 ns/op |
+| Company | 61.61 ns/op | 297.0 ns/op | 192.6 ns/op | 326.6 ns/op |
 
 ### Discriminated Unions
 
@@ -211,22 +211,22 @@ The `DecodeFixedBytesInto` method provides zero-allocation decoding for fixed-si
 
 | Case | Encode | Decode | Marshal | Unmarshal |
 |------|--------|--------|---------|-----------|
-| Success | 6.364 ns/op | 19.01 ns/op | 130.3 ns/op | 34.75 ns/op |
-| Error (void) | 2.289 ns/op | 2.164 ns/op | 128.8 ns/op | 18.25 ns/op |
+| Success | 6.289 ns/op | 17.77 ns/op | 135.3 ns/op | 32.31 ns/op |
+| Error (void) | 2.199 ns/op | 2.162 ns/op | 101.1 ns/op | 18.69 ns/op |
 
 #### Message Union
 
 | Case | Encode | Decode | Marshal | Unmarshal |
 |------|--------|--------|---------|-----------|
-| Text | 7.603 ns/op | 15.52 ns/op | 130.3 ns/op | 34.75 ns/op |
-| Void | 2.402 ns/op | 2.260 ns/op | 128.8 ns/op | 18.25 ns/op |
+| Text | 2.146 ns/op | 2.161 ns/op | 135.3 ns/op | 32.31 ns/op |
+| Void | 2.191 ns/op | 2.154 ns/op | 101.1 ns/op | 18.69 ns/op |
 
 #### Operation Union
 
 | Case | Encode | Decode | Marshal | Unmarshal |
 |------|--------|--------|---------|-----------|
-| Read | 7.557 ns/op | 18.22 ns/op | 130.3 ns/op | 34.75 ns/op |
-| Write (void) | 2.327 ns/op | 2.183 ns/op | 128.8 ns/op | 18.25 ns/op |
+| Read | 2.151 ns/op | 2.162 ns/op | 135.3 ns/op | 32.31 ns/op |
+| Write (void) | 2.133 ns/op | 2.170 ns/op | 101.1 ns/op | 18.69 ns/op |
 
 ## Key Performance Insights
 

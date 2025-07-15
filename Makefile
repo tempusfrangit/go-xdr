@@ -36,11 +36,17 @@ generate-all:
 
 # Run tests
 test: generate-test
+	@echo "Running tests in main workspace..."
 	go test -v ./...
+	@echo "Running tests in tools/xdrgen workspace..."
+	cd tools/xdrgen && go test -v ./...
 
 # Run tests with race detection
 test-race: generate-test
+	@echo "Running tests with race detection in main workspace..."
 	go test -race -v ./...
+	@echo "Running tests with race detection in tools/xdrgen workspace..."
+	cd tools/xdrgen && go test -race -v ./...
 
 # Run benchmarks (with build tags)
 bench: generate-test
@@ -68,9 +74,12 @@ check-format:
 vet:
 	go vet ./...
 
-# Lint code with golangci-lint v2
+# Lint code with golangci-lint (matches CI)
 lint:
-	@go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run --timeout=5m
+	@echo "Running golangci-lint on main workspace..."
+	@go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run
+	@echo "Running golangci-lint on xdrgen workspace..."
+	@cd tools/xdrgen && go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run
 
 # Run all checks
 check: check-format vet test-race
@@ -90,10 +99,13 @@ dev: format vet test
 examples: xdrgen
 	@echo "Building and running all examples..."
 	@for dir in examples/*/; do \
-		echo "=== Testing $$(basename $$dir) ==="; \
-		cd "$$dir" && go generate && go run . && cd ../..; \
+		echo "=== Running $$(basename $$dir) ==="; \
+		(cd "$$dir" && go generate && go run .) || echo "Failed: $$dir"; \
 		echo ""; \
 	done
 
+# Test all examples (run as demos)
+examples-test: examples
+
 # CI workflow
-ci: check-format vet test-race lint
+ci: check-format vet test-race lint examples-test

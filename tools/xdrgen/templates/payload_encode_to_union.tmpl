@@ -1,0 +1,14 @@
+// EncodeToUnion encodes {{.PayloadTypeName}} directly to union format
+func (p *{{.PayloadTypeName}}) EncodeToUnion(enc *xdr.Encoder) error {
+	// Encode discriminant
+	if err := enc.EncodeUint32(uint32({{.Discriminant}})); err != nil {
+		return fmt.Errorf("failed to encode discriminant: %w", err)
+	}
+	
+	// Encode payload
+	if err := p.Encode(enc); err != nil {
+		return fmt.Errorf("failed to encode payload: %w", err)
+	}
+	
+	return nil
+}

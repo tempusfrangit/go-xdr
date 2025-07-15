@@ -1,0 +1,11 @@
+go 1.20
+
+use (
+	.
+	./tools/xdrgen
+	./examples/alias
+	./examples/autogen
+	./examples/discriminated-union
+	./examples/encode-decode
+	./examples/mixed-manual
+)

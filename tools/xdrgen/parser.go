@@ -11,12 +11,16 @@ import (
 	"strings"
 )
 
-// isSupportedXDRType checks if an XDR type is supported by the generator
+// isSupportedXDRType checks if an auto-detected XDR type is supported by the generator
 func isSupportedXDRType(xdrType string) bool {
 	switch xdrType {
-	case "uint32", "uint64", "int32", "int64", "string", "bytes", "bool", "struct":
+	case "uint32", "uint64", "int32", "int64", "string", "bytes", "bool", "struct", "array":
 		return true
 	default:
+		// Handle complex types with prefixes
+		if strings.HasPrefix(xdrType, "fixed:") || strings.HasPrefix(xdrType, "alias:") {
+			return true
+		}
 		return false
 	}
 }
@@ -158,34 +162,50 @@ func parseUnionComment(comment string) (*UnionConfig, error) {
 			continue
 		}
 
-		if strings.HasPrefix(part, "case=") {
-			// Parse case - just the constant name, struct name is implicit
-			constantName := strings.TrimSpace(strings.TrimPrefix(part, "case="))
-			if constantName == "" {
-				return nil, fmt.Errorf("empty case name in union comment: %s", comment)
-			}
-			// The struct name will be filled in when we associate the comment with the struct
-			config.Cases[constantName] = "" // Will be filled in later
-		} else {
+		if !strings.HasPrefix(part, "case=") {
 			return nil, fmt.Errorf("unknown union comment part: %s", comment)
 		}
+		// Parse case - just the constant name, struct name is implicit
+		constantName := strings.TrimSpace(strings.TrimPrefix(part, "case="))
+		if constantName == "" {
+			return nil, fmt.Errorf("empty case name in union comment: %s", comment)
+		}
+		// The struct name will be filled in when we associate the comment with the struct
+		config.Cases[constantName] = "" // Will be filled in later
 	}
 
 	return config, nil
 }
 
+// ConstantInfo holds information about a constant
+type ConstantInfo struct {
+	Value string
+	Type  string
+}
+
 // collectConstants collects all constant definitions from the AST
-func collectConstants(file *ast.File) map[string]string {
-	constants := make(map[string]string)
+func collectConstants(file *ast.File) map[string]ConstantInfo {
+	constants := make(map[string]ConstantInfo)
 
 	ast.Inspect(file, func(n ast.Node) bool {
 		if decl, ok := n.(*ast.GenDecl); ok && decl.Tok == token.CONST {
 			for _, spec := range decl.Specs {
 				if valueSpec, ok := spec.(*ast.ValueSpec); ok {
+					// Get the type if specified
+					var typeName string
+					if valueSpec.Type != nil {
+						if ident, ok := valueSpec.Type.(*ast.Ident); ok {
+							typeName = ident.Name
+						}
+					}
+
 					for i, name := range valueSpec.Names {
 						if i < len(valueSpec.Values) {
 							if basicLit, ok := valueSpec.Values[i].(*ast.BasicLit); ok {
-								constants[name.Name] = basicLit.Value
+								constants[name.Name] = ConstantInfo{
+									Value: basicLit.Value,
+									Type:  typeName,
+								}
 							}
 						}
 					}
@@ -363,55 +383,13 @@ func discoverGoFiles(dir string) ([]string, error) {
 }
 
 // parseFileWithPackageTypeDefs parses a Go file with package-level type definitions
-func parseFileWithPackageTypeDefs(filename string, packageTypeDefs map[string]ast.Node, packageConstants map[string]string) ([]TypeInfo, []ValidationError, map[string]ast.Node, error) {
+func parseFileWithPackageTypeDefs(filename string, packageTypeDefs map[string]ast.Node, packageConstants map[string]ConstantInfo) ([]TypeInfo, []ValidationError, map[string]ast.Node, error) {
 	return parseFileInternal(filename, packageTypeDefs, packageConstants)
 }
 
 // parseFile parses a Go file and extracts structs that have go:generate xdrgen directives
 func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.Node, error) {
 	return parseFileInternal(filename, nil, nil)
-}
-
-// inferXDRType infers XDR type from Go type for xdr:"auto" tags
-func inferXDRType(goType string) string {
-	switch goType {
-	case "uint32":
-		return "uint32"
-	case "uint64":
-		return "uint64"
-	case "int32":
-		return "int32"
-	case "int64":
-		return "int64"
-	case "string":
-		return "string"
-	case "[]byte":
-		return "bytes"
-	case "bool":
-		return "bool"
-	default:
-		// Handle array types
-		if strings.HasPrefix(goType, "[]") {
-			elementType := strings.TrimPrefix(goType, "[]")
-			inferredElement := inferXDRType(elementType)
-			if inferredElement != "" {
-				return inferredElement // Return element type for arrays
-			}
-		}
-
-		// Handle fixed arrays
-		if strings.HasPrefix(goType, "[") && strings.Contains(goType, "]") {
-			closeBracket := strings.Index(goType, "]")
-			elementType := goType[closeBracket+1:]
-			inferredElement := inferXDRType(elementType)
-			if inferredElement != "" {
-				return inferredElement // Return element type for fixed arrays
-			}
-		}
-
-		// For unknown types, assume struct
-		return "struct"
-	}
 }
 
 // resolveAliasType recursively resolves alias chains to their underlying primitive type
@@ -430,7 +408,7 @@ func resolveAliasType(goType string, typeAliases map[string]string) string {
 	if strings.HasPrefix(current, "[") && strings.Contains(current, "]") {
 		closeBracket := strings.Index(current, "]")
 		if closeBracket > 0 {
-			prefix := current[:closeBracket+1] // [N]
+			prefix := current[:closeBracket+1]      // [N]
 			elementType := current[closeBracket+1:] // TypeName
 			resolvedElement := resolveAliasType(elementType, typeAliases)
 			return prefix + resolvedElement
@@ -510,13 +488,32 @@ func parseXDRDirective(comment string) (directive string, args map[string]string
 	// Remove "// +xdr:" prefix
 	content := strings.TrimPrefix(comment, "// +xdr:")
 
-	// Split directive from arguments
-	parts := strings.SplitN(content, "=", 2)
-	directive = strings.TrimSpace(parts[0])
+	// Handle both old and new format
 	args = make(map[string]string)
 
-	if len(parts) > 1 {
-		args["value"] = strings.TrimSpace(parts[1])
+	// Check if this is new comma-separated format or old equals format
+	if strings.Contains(content, ",") {
+		// New format: +xdr:union,key=Type,default=MessageTypeVoid
+		parts := strings.Split(content, ",")
+		directive = strings.TrimSpace(parts[0])
+
+		// Parse key=value pairs
+		for _, part := range parts[1:] {
+			if strings.Contains(part, "=") {
+				kv := strings.SplitN(part, "=", 2)
+				key := strings.TrimSpace(kv[0])
+				value := strings.TrimSpace(kv[1])
+				args[key] = value
+			}
+		}
+	} else {
+		// Old format: +xdr:union=OpType
+		parts := strings.SplitN(content, "=", 2)
+		directive = strings.TrimSpace(parts[0])
+
+		if len(parts) > 1 {
+			args["value"] = strings.TrimSpace(parts[1])
+		}
 	}
 
 	return directive, args, true
@@ -525,8 +522,50 @@ func parseXDRDirective(comment string) (directive string, args map[string]string
 // XDRDirectives holds all XDR directives for a struct
 type XDRDirectives struct {
 	Generate bool
-	Union    string
-	Cases    []string
+	Union    *UnionDirective
+	Payload  *PayloadDirective
+}
+
+// UnionDirective represents +xdr:union directive
+type UnionDirective struct {
+	Key     string // key field name
+	Default string // default case (optional)
+}
+
+// PayloadDirective represents +xdr:payload directive
+type PayloadDirective struct {
+	Union        string // union type name
+	Discriminant string // discriminant value
+}
+
+// parseUnionDirective parses +xdr:union directive
+// Format: key=FieldName,default=DefaultValue
+func parseUnionDirective(args map[string]string) *UnionDirective {
+	directive := &UnionDirective{}
+
+	if key, ok := args["key"]; ok {
+		directive.Key = key
+	}
+	if defaultVal, ok := args["default"]; ok {
+		directive.Default = defaultVal
+	}
+
+	return directive
+}
+
+// parsePayloadDirective parses +xdr:payload directive
+// Format: union=UnionType,discriminant=DiscriminantValue
+func parsePayloadDirective(args map[string]string) *PayloadDirective {
+	directive := &PayloadDirective{}
+
+	if union, ok := args["union"]; ok {
+		directive.Union = union
+	}
+	if discriminant, ok := args["discriminant"]; ok {
+		directive.Discriminant = discriminant
+	}
+
+	return directive
 }
 
 // collectXDRDirectives collects all // +xdr: directives immediately before a struct
@@ -548,25 +587,24 @@ func collectXDRDirectives(file *ast.File, structPos token.Pos) *XDRDirectives {
 	// Only process the immediately preceding comment group
 	if targetCommentGroup != nil {
 		for _, comment := range targetCommentGroup.List {
+			debugf("Processing comment: %s", comment.Text)
 			directive, args, isXDR := parseXDRDirective(comment.Text)
 			if !isXDR {
+				debugf("Not an XDR directive: %s", comment.Text)
 				continue
 			}
+			debugf("Found XDR directive: %s with args: %v", directive, args)
 
 			switch directive {
 			case "generate":
 				directives.Generate = true
 				debugf("Found +xdr:generate directive")
 			case "union":
-				if value, ok := args["value"]; ok {
-					directives.Union = value
-					debugf("Found +xdr:union=%s directive", value)
-				}
-			case "case":
-				if value, ok := args["value"]; ok {
-					directives.Cases = append(directives.Cases, value)
-					debugf("Found +xdr:case=%s directive", value)
-				}
+				directives.Union = parseUnionDirective(args)
+				debugf("Found +xdr:union directive with args: %v", args)
+			case "payload":
+				directives.Payload = parsePayloadDirective(args)
+				debugf("Found +xdr:payload directive with args: %v", args)
 			}
 		}
 	}
@@ -575,7 +613,7 @@ func collectXDRDirectives(file *ast.File, structPos token.Pos) *XDRDirectives {
 }
 
 // parseFileInternal is the internal implementation that can optionally use package-level type definitions
-func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, packageConstants map[string]string) ([]TypeInfo, []ValidationError, map[string]ast.Node, error) {
+func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, packageConstants map[string]ConstantInfo) ([]TypeInfo, []ValidationError, map[string]ast.Node, error) {
 	fset := token.NewFileSet()
 
 	fileBytes, err := os.ReadFile(filename)
@@ -629,8 +667,13 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 
 	// Build typeDefs map
 	ast.Inspect(file, func(n ast.Node) bool {
-		if node, ok := n.(*ast.TypeSpec); ok {
-			typeDefs[node.Name.Name] = node.Type
+		if genDecl, ok := n.(*ast.GenDecl); ok {
+			// Store the full GenDecl which contains the directive comments
+			for _, spec := range genDecl.Specs {
+				if typeSpec, ok := spec.(*ast.TypeSpec); ok {
+					typeDefs[typeSpec.Name.Name] = genDecl
+				}
+			}
 		}
 		return true
 	})
@@ -652,13 +695,11 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 	})
 
 	// If package-level type definitions are provided, include them
-	if packageTypeDefs != nil {
-		for typeName, typeNode := range packageTypeDefs {
-			if _, exists := typeAliases[typeName]; !exists {
-				if typeExpr, ok := typeNode.(ast.Expr); ok {
-					underlyingType := formatType(typeExpr)
-					typeAliases[typeName] = underlyingType
-				}
+	for typeName, typeNode := range packageTypeDefs {
+		if _, exists := typeAliases[typeName]; !exists {
+			if typeExpr, ok := typeNode.(ast.Expr); ok {
+				underlyingType := formatType(typeExpr)
+				typeAliases[typeName] = underlyingType
 			}
 		}
 	}
@@ -709,7 +750,8 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 	// If no go:generate directive found, process all structs with XDR tags
 	// This allows processing test files and other files without explicit directives
 	if !hasGOFILEDirective && len(structsToGenerate) == 0 {
-		hasGOFILEDirective = true
+		// Process all structs with XDR tags in this case
+		debugf("No go:generate directive found, will process all structs with XDR tags")
 	}
 
 	// Collect all union comments from the file
@@ -745,32 +787,44 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 				// Collect XDR directives for this struct
 				xdrDirectives := collectXDRDirectives(file, node.Pos())
 
-				// Only generate if struct has // +xdr:generate directive
-				shouldGenerate := xdrDirectives.Generate
-				if shouldGenerate {
-					debugf("Struct %s has +xdr:generate directive", typeInfo.Name)
-				}
-
-				// Check if this struct is a discriminated union container (has key field)
-				hasKeyField := false
-				for _, field := range typeInfo.Fields {
-					if field.IsKey {
-						hasKeyField = true
-						break
-					}
-				}
-
-				// Only mark as discriminated union if it actually has a key field
-				if hasKeyField {
+				// Mark key field if this is a union container (do this before processing fields)
+				if xdrDirectives.Union != nil && xdrDirectives.Union.Key != "" {
 					typeInfo.IsDiscriminatedUnion = true
-					debugf("Struct %s is a discriminated union container (has key field)", typeInfo.Name)
+					debugf("Struct %s is a discriminated union container (has +xdr:union directive)", typeInfo.Name)
 				}
+
+				// Auto-generate for union containers and payload types
+				shouldGenerate := xdrDirectives.Generate || xdrDirectives.Union != nil || xdrDirectives.Payload != nil
+				if shouldGenerate {
+					if xdrDirectives.Generate {
+						debugf("Struct %s has +xdr:generate directive", typeInfo.Name)
+					}
+					if xdrDirectives.Union != nil {
+						debugf("Struct %s has +xdr:union directive - auto-generating", typeInfo.Name)
+					}
+					if xdrDirectives.Payload != nil {
+						debugf("Struct %s has +xdr:payload directive - auto-generating", typeInfo.Name)
+					}
+				} else {
+					debugf("Struct %s - no generation needed: Generate=%v, Union=%v, Payload=%v", typeInfo.Name, xdrDirectives.Generate, xdrDirectives.Union != nil, xdrDirectives.Payload != nil)
+				}
+
+				// Union container detection is now handled during field processing
 
 				// Store XDR directives for payload structs (for later cross-file processing)
-				if shouldGenerate && (xdrDirectives.Union != "" || len(xdrDirectives.Cases) > 0) {
-					debugf("Struct %s has union directives: union=%s, cases=%v", typeInfo.Name, xdrDirectives.Union, xdrDirectives.Cases)
-					// This struct is a payload for another container - don't create UnionConfig here
-					// The cross-file processing will handle associating this with the correct container
+				if shouldGenerate && (xdrDirectives.Union != nil || xdrDirectives.Payload != nil) {
+					if xdrDirectives.Union != nil {
+						debugf("Struct %s has union directive: key=%s, default=%s", typeInfo.Name, xdrDirectives.Union.Key, xdrDirectives.Union.Default)
+					}
+					if xdrDirectives.Payload != nil {
+						debugf("Struct %s has payload directive: union=%s, discriminant=%s", typeInfo.Name, xdrDirectives.Payload.Union, xdrDirectives.Payload.Discriminant)
+						// Mark this struct as a payload
+						typeInfo.IsPayload = true
+						typeInfo.PayloadConfig = &PayloadConfig{
+							UnionType:    xdrDirectives.Payload.Union,
+							Discriminant: xdrDirectives.Payload.Discriminant,
+						}
+					}
 				}
 
 				if !shouldGenerate {
@@ -817,23 +871,19 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 							continue // Skip this field
 						}
 
-						// Handle XDR tags in minimal mode
+						// Handle XDR tags in minimal mode (only xdr:"-" is supported)
 						if xdrTag != "" {
 							// Check for skip tag first
 							if xdrTag == "-" {
 								continue // Skip this field
 							}
+							// All other struct tags are ignored - we use directives and auto-detection
+						}
 
-							// Check for key tag
-							isKey, defaultType := parseKeyTag(xdrTag)
-							if isKey {
-								// This is a key field
-								fieldInfo.IsKey = true
-								fieldInfo.DefaultType = defaultType
-							} else {
-								// Unknown tag - only key and - are supported
-								log.Fatalf("Unknown XDR tag '%s' for field %s.%s. Only 'key[,default=nil|StructName]' and '-' tags are supported", xdrTag, typeInfo.Name, fieldInfo.Name)
-							}
+						// Check if this field is the key field specified in the directive
+						if xdrDirectives.Union != nil && xdrDirectives.Union.Key == fieldInfo.Name {
+							fieldInfo.IsKey = true
+							debugf("Marked field %s as key field from +xdr:union directive", fieldInfo.Name)
 						}
 
 						// Auto-discover XDR type from Go type
@@ -857,9 +907,8 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 							if fieldInfo.Type != "uint32" && (!ok || underlyingType != "uint32") {
 								if !ok {
 									log.Fatalf("Key field %s.%s references type %s which is not defined in this file. For cross-file dependencies, process the entire package directory instead of individual files", typeInfo.Name, fieldInfo.Name, fieldInfo.Type)
-								} else {
-									log.Fatalf("Key field %s.%s must be uint32 or an alias of uint32, got %s (resolves to %s)", typeInfo.Name, fieldInfo.Name, fieldInfo.Type, underlyingType)
 								}
+								log.Fatalf("Key field %s.%s must be uint32 or an alias of uint32, got %s (resolves to %s)", typeInfo.Name, fieldInfo.Name, fieldInfo.Type, underlyingType)
 							}
 							// Key fields should be treated as uint32 for encoding/decoding
 							fieldInfo.XDRType = "uint32"
@@ -927,7 +976,13 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 			var typedConstants map[string]string
 			if packageConstants != nil {
 				// Use package-level constants for cross-file processing
-				typedConstants = packageConstants
+				// Filter constants by type
+				typedConstants = make(map[string]string)
+				for name, constantInfo := range packageConstants {
+					if constantInfo.Type == keyField.Type {
+						typedConstants[name] = constantInfo.Value
+					}
+				}
 			} else {
 				// Use file-level constants for single-file processing
 				typedConstants = collectTypedConstants(file, keyField.Type)
@@ -946,4 +1001,86 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 	}
 
 	return types, misplacedUnionComments, typeDefs, nil
+}
+
+// getUnionFieldNames extracts the key and payload field names from a union struct AST node
+func getUnionFieldNames(unionTypeName string, typeDefs map[string]ast.Node) (keyField, payloadField string) {
+	node, exists := typeDefs[unionTypeName]
+	if !exists {
+		return "", ""
+	}
+
+	// Extract fields from the struct declaration and get the key field from the directive
+	var structType *ast.StructType
+	var keyFieldFromDirective string
+
+	switch n := node.(type) {
+	case *ast.GenDecl:
+		// Check for +xdr:union,key=FieldName directive in the comments
+		if n.Doc != nil {
+			for _, comment := range n.Doc.List {
+				if strings.Contains(comment.Text, "+xdr:union,key=") {
+					// Extract the key field name from the directive
+					parts := strings.Split(comment.Text, "key=")
+					if len(parts) > 1 {
+						keyFieldFromDirective = parts[1]
+						// Remove any trailing commas or whitespace
+						keyFieldFromDirective = strings.TrimSpace(strings.Split(keyFieldFromDirective, ",")[0])
+					}
+				}
+			}
+		}
+
+		for _, spec := range n.Specs {
+			if typeSpec, ok := spec.(*ast.TypeSpec); ok && typeSpec.Name.Name == unionTypeName {
+				if st, ok := typeSpec.Type.(*ast.StructType); ok {
+					structType = st
+					break
+				}
+			}
+		}
+	case *ast.TypeSpec:
+		if st, ok := n.Type.(*ast.StructType); ok {
+			structType = st
+		}
+	case *ast.StructType:
+		// Direct struct type - this shouldn't happen for union types with directives
+		structType = n
+	}
+
+	if structType == nil {
+		return "", ""
+	}
+
+	// Use the key field name from the directive, or fall back to looking for xdr:"key" tags
+	if keyFieldFromDirective != "" {
+		keyField = keyFieldFromDirective
+	} else {
+		// Fallback: look for xdr:"key" tags in struct field tags
+		for _, field := range structType.Fields.List {
+			if field.Tag == nil {
+				continue
+			}
+			tag := strings.Trim(field.Tag.Value, "`")
+
+			// Check if this is a key field
+			if strings.Contains(tag, `xdr:"key"`) {
+				if len(field.Names) > 0 {
+					keyField = field.Names[0].Name
+				}
+			}
+		}
+	}
+
+	// Find the payload field (auto-detect as the first non-key field)
+	if keyField != "" {
+		for _, field := range structType.Fields.List {
+			if len(field.Names) > 0 && field.Names[0].Name != keyField {
+				payloadField = field.Names[0].Name
+				break
+			}
+		}
+	}
+
+	return keyField, payloadField
 }

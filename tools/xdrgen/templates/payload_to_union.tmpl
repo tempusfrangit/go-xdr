@@ -1,0 +1,14 @@
+// ToUnion converts {{.PayloadTypeName}} to {{.UnionTypeName}}
+func (p *{{.PayloadTypeName}}) ToUnion() (*{{.UnionTypeName}}, error) {
+	buf := make([]byte, 1024) // Initial buffer size
+	enc := xdr.NewEncoder(buf)
+	if err := p.Encode(enc); err != nil {
+		return nil, fmt.Errorf("failed to encode {{.PayloadTypeName}}: %w", err)
+	}
+	data := enc.Bytes()
+	
+	return &{{.UnionTypeName}}{
+		{{.KeyField}}: {{.Discriminant}},
+		{{.PayloadField}}: data,
+	}, nil
+}

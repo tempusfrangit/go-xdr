@@ -11,50 +11,52 @@ This example demonstrates XDR discriminated unions (variant types) where the pre
 
 ## Key concepts
 
-- **Discriminant**: Field that determines which union case is active (tagged with `xdr:"key"`)
-- **Union Cases**: Different data types or void based on discriminant value (tagged with `xdr:"union,default=Type"` or `xdr:"union,default=nil"` for void)
+- **Discriminant**: Field that determines which union case is active (defined by `+xdr:union,key=FieldName`)
+- **Union Cases**: Different data types or void based on discriminant value
 - **Void Case**: Union case with no associated data
 - **Type Safety**: Compile-time validation of union specifications
 
-## XDR Union Tags (Clean Syntax)
+## XDR Union Directives (No Struct Tags!)
 
-- `xdr:"key"` - marks the discriminant field (must be uint32 or uint32 alias)
-- `xdr:"union,default=nil"` - marks the union payload field with void default
-- `//xdr:union=<container>,case=<constant>` - comment on payload struct to map discriminant values
+- `// +xdr:union,key=FieldName[,default=ConstName]` - marks union container struct
+- `// +xdr:payload,union=UnionName,discriminant=ConstName` - maps payload struct to discriminant value
+- Auto-detection of `[]byte` field as union payload (no tags needed)
 
 ### Example
 ```go
+// +xdr:union,key=Status
 type OperationResult struct {
-    Status Status `xdr:"key"`
-    Data   []byte `xdr:"union,default=nil"`
+    Status Status // discriminant
+    Data   []byte // auto-detected as union payload
 }
 
 // OpSuccessResult for successful operations
-//xdr:union=OperationResult,case=StatusSuccess
+// +xdr:payload,union=OperationResult,discriminant=StatusSuccess
 type OpSuccessResult struct {
-    Message string `xdr:"string"`
+    Message string // auto-detected as string
 }
 ```
 
 ### Multi-Type Union Example
 ```go
+// +xdr:union,key=Type
 type NetworkMessage struct {
-    Type    MessageType `xdr:"key"`
-    Payload []byte      `xdr:"union,default=nil"`
+    Type    MessageType // discriminant
+    Payload []byte      // auto-detected as union payload
 }
 
 // Text payload for text messages
-//xdr:union=NetworkMessage,case=MessageTypeText
+// +xdr:payload,union=NetworkMessage,discriminant=MessageTypeText
 type TextPayload struct {
-    Content string `xdr:"string"`
-    Sender  string `xdr:"string"`
+    Content string // auto-detected as string
+    Sender  string // auto-detected as string
 }
 
 // Binary payload for binary messages
-//xdr:union=NetworkMessage,case=MessageTypeBinary
+// +xdr:payload,union=NetworkMessage,discriminant=MessageTypeBinary
 type BinaryPayload struct {
-    Data     []byte `xdr:"bytes"`
-    Checksum uint32 `xdr:"uint32"`
+    Data     []byte // auto-detected as bytes
+    Checksum uint32 // auto-detected as uint32
 }
 ```
 
