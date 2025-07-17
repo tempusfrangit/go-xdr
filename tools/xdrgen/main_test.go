@@ -1,6 +1,7 @@
 package main
 
 import (
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
@@ -108,7 +109,7 @@ func TestExtractReceiverType(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"Pointer receiver", "*TestStruct", "TestStruct"},
+		{"Pointer receiver", "*TestStruct", "*TestStruct"},
 		{"Value receiver", "TestStruct", "TestStruct"},
 	}
 
@@ -149,9 +150,22 @@ func TestFormatType(t *testing.T) {
 }
 
 func TestCollectExternalImports(t *testing.T) {
+	// Create a mock AST file with imports
+	mockFile := &ast.File{
+		Imports: []*ast.ImportSpec{
+			{
+				Path: &ast.BasicLit{Value: `"github.com/tempusfrangit/go-xdr/primitives"`},
+			},
+			{
+				Path: &ast.BasicLit{Value: `"github.com/tempusfrangit/go-xdr/session"`},
+			},
+		},
+	}
+
 	tests := []struct {
 		name     string
 		types    []TypeInfo
+		file     *ast.File
 		expected []string
 	}{
 		{
@@ -165,10 +179,11 @@ func TestCollectExternalImports(t *testing.T) {
 					},
 				},
 			},
+			file:     nil,
 			expected: []string{},
 		},
 		{
-			name: "With external imports",
+			name: "With external imports but no file",
 			types: []TypeInfo{
 				{
 					Name: "TestStruct",
@@ -179,6 +194,22 @@ func TestCollectExternalImports(t *testing.T) {
 					},
 				},
 			},
+			file:     nil,
+			expected: []string{}, // Can't resolve imports without AST file
+		},
+		{
+			name: "With external imports and file",
+			types: []TypeInfo{
+				{
+					Name: "TestStruct",
+					Fields: []FieldInfo{
+						{Name: "ID", Type: "uint32", XDRType: "uint32"},
+						{Name: "State", Type: "primitives.StateID", XDRType: "bytes"},
+						{Name: "Session", Type: "session.ID", XDRType: "bytes"},
+					},
+				},
+			},
+			file: mockFile,
 			expected: []string{
 				"github.com/tempusfrangit/go-xdr/primitives",
 				"github.com/tempusfrangit/go-xdr/session",
@@ -188,7 +219,7 @@ func TestCollectExternalImports(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := collectExternalImports(tt.types)
+			result := collectExternalImports(tt.types, tt.file)
 			assert.Len(t, result, len(tt.expected), "Expected %d imports", len(tt.expected))
 			for _, expected := range tt.expected {
 				assert.Contains(t, result, expected, "Expected import %q not found", expected)
@@ -205,16 +236,16 @@ func TestExtractPackageImportsEdgeCases(t *testing.T) {
 	}{
 		{"Empty string", "", []string{}},
 		{"Basic type", "uint32", []string{}},
-		{"Package qualified", "primitives.StateID", []string{"github.com/tempusfrangit/go-xdr/primitives"}},
-		{"Multiple packages", "primitives.StateID,session.Response", []string{"github.com/tempusfrangit/go-xdr/primitives", "github.com/tempusfrangit/go-xdr/session"}},
-		{"Array with package", "[]primitives.StateID", []string{"github.com/tempusfrangit/go-xdr/primitives"}},
-		{"Pointer with package", "*primitives.StateID", []string{"github.com/tempusfrangit/go-xdr/primitives"}},
-		{"Unknown package", "unknown.Type", []string{}},
+		{"Package qualified", "primitives.StateID", []string{"primitives"}},
+		{"Multiple packages", "primitives.StateID,session.Response", []string{"primitives", "session"}},
+		{"Array with package", "[]primitives.StateID", []string{"primitives"}},
+		{"Pointer with package", "*primitives.StateID", []string{"primitives"}},
+		{"Unknown package", "unknown.Type", []string{"unknown"}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := extractPackageImports(tt.typeStr)
+			result := extractPackageNamesFromType(tt.typeStr)
 
 			assert.Len(t, result, len(tt.expected), "Expected %d packages", len(tt.expected))
 			for _, expected := range tt.expected {
@@ -356,18 +387,20 @@ func TestAutoDiscoverXDRType(t *testing.T) {
 func TestHasExistingMethods(t *testing.T) {
 	content := `package test
 
+import "github.com/tempusfrangit/go-xdr"
+
 type TestStruct struct {
 	ID uint32
 }
 
-func (t *TestStruct) Encode() {}
-func (t *TestStruct) Decode() {}
+func (t *TestStruct) Encode(enc *xdr.Encoder) error { return nil }
+func (t *TestStruct) Decode(dec *xdr.Decoder) error { return nil }
 
 type PartialStruct struct {
 	ID uint32
 }
 
-func (p *PartialStruct) Encode() {}
+func (p *PartialStruct) Encode(enc *xdr.Encoder) error { return nil }
 `
 
 	tmpFile := createTempFile(t, content)

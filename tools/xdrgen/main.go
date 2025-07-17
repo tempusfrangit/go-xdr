@@ -87,45 +87,49 @@ func main() {
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "xdrgen - XDR Code Generator\n\n")
-		fmt.Fprintf(os.Stderr, "Generates Encode and Decode methods for Go structs with XDR struct tags.\n")
-		fmt.Fprintf(os.Stderr, "Supports the xdr.Codec interface for automatic XDR serialization/deserialization.\n\n")
+		fmt.Fprintf(os.Stderr, "Generates Encode and Decode methods for Go structs using directive-based configuration.\n")
+		fmt.Fprintf(os.Stderr, "Features ultra-minimal tagging with automatic type detection and discriminated unions.\n\n")
 		fmt.Fprintf(os.Stderr, "Usage:\n")
 		fmt.Fprintf(os.Stderr, "  xdrgen [flags] <package-dir>     # Process package (files with //go:generate)\n")
 		fmt.Fprintf(os.Stderr, "  xdrgen [flags] <file.go>         # Process single file\n\n")
-		fmt.Fprintf(os.Stderr, "The generator processes files that are explicitly opted in via go:generate directives:\n")
-		fmt.Fprintf(os.Stderr, "  //go:generate xdrgen $GOPACKAGE              (process all XDR-tagged structs in package)\n")
-		fmt.Fprintf(os.Stderr, "  //go:generate xdrgen StructName              (process specific struct in package)\n")
-		fmt.Fprintf(os.Stderr, "  //go:generate ../../tools/bin/xdrgen StructName  (with path)\n\n")
-		fmt.Fprintf(os.Stderr, "Supported XDR struct tags:\n")
-		fmt.Fprintf(os.Stderr, "  `xdr:\"uint32\"`     - 32-bit unsigned integer\n")
-		fmt.Fprintf(os.Stderr, "  `xdr:\"uint64\"`     - 64-bit unsigned integer\n")
-		fmt.Fprintf(os.Stderr, "  `xdr:\"int32\"`      - 32-bit signed integer\n")
-		fmt.Fprintf(os.Stderr, "  `xdr:\"int64\"`      - 64-bit signed integer\n")
-		fmt.Fprintf(os.Stderr, "  `xdr:\"string\"`     - variable-length string\n")
-		fmt.Fprintf(os.Stderr, "  `xdr:\"bytes\"`      - variable-length byte array\n")
-		fmt.Fprintf(os.Stderr, "  `xdr:\"bool\"`       - boolean (encoded as uint32)\n")
-		fmt.Fprintf(os.Stderr, "  `xdr:\"struct\"`     - nested struct (must implement xdr.Codec)\n")
-		fmt.Fprintf(os.Stderr, "  `xdr:\"array\"`      - variable-length array\n")
-		fmt.Fprintf(os.Stderr, "  `xdr:\"fixed:N\"`    - fixed-size byte array (N bytes)\n")
-		fmt.Fprintf(os.Stderr, "  `xdr:\"alias\"`       - type alias with automatic type inference\n")
-		fmt.Fprintf(os.Stderr, "  `xdr:\"key\"`         - discriminated union discriminant field\n")
-		fmt.Fprintf(os.Stderr, "  `xdr:\"union\"`       - discriminated union payload field\n")
-		fmt.Fprintf(os.Stderr, "  `xdr:\"union,default=nil\"` - discriminated union payload with void default\n")
+		fmt.Fprintf(os.Stderr, "The generator processes files with XDR generation directives:\n")
+		fmt.Fprintf(os.Stderr, "  //go:generate xdrgen $GOFILE              (process current file)\n")
+		fmt.Fprintf(os.Stderr, "  //go:generate ../../bin/xdrgen types.go  (with relative path)\n\n")
+		fmt.Fprintf(os.Stderr, "XDR Generation Directives:\n")
+		fmt.Fprintf(os.Stderr, "  // +xdr:generate                              - Generate for standalone struct\n")
+		fmt.Fprintf(os.Stderr, "  // +xdr:union,key=FieldName,default=TypeName  - Union container\n")
+		fmt.Fprintf(os.Stderr, "  // +xdr:payload,union=UnionName,discriminant=Const - Union payload\n\n")
+		fmt.Fprintf(os.Stderr, "Supported Go Types (auto-detected):\n")
+		fmt.Fprintf(os.Stderr, "  uint32, uint64, int32, int64  - Integer types\n")
+		fmt.Fprintf(os.Stderr, "  string                        - Variable-length string\n")
+		fmt.Fprintf(os.Stderr, "  []byte, [N]byte              - Byte arrays (variable/fixed)\n")
+		fmt.Fprintf(os.Stderr, "  bool                          - Boolean (encoded as uint32)\n")
+		fmt.Fprintf(os.Stderr, "  struct types                  - Nested structs (auto-detected)\n")
+		fmt.Fprintf(os.Stderr, "  []Type                        - Variable-length arrays\n")
+		fmt.Fprintf(os.Stderr, "  type aliases                  - Automatically resolved\n\n")
+		fmt.Fprintf(os.Stderr, "Optional struct tags:\n")
 		fmt.Fprintf(os.Stderr, "  `xdr:\"-\"`          - exclude field from encoding/decoding\n\n")
 		fmt.Fprintf(os.Stderr, "Discriminated Unions:\n")
-		fmt.Fprintf(os.Stderr, "  Use //xdr:union=<container>,case=<constant> comments on payload structs\n")
-		fmt.Fprintf(os.Stderr, "  Void cases are automatically inferred from unmapped constants\n")
-		fmt.Fprintf(os.Stderr, "  Example: //xdr:union=NetworkMessage,case=MessageTypeText\n\n")
+		fmt.Fprintf(os.Stderr, "  Union containers use: // +xdr:union,key=FieldName,default=DefaultType\n")
+		fmt.Fprintf(os.Stderr, "  Payload types use: // +xdr:payload,union=ContainerName,discriminant=ConstName\n")
+		fmt.Fprintf(os.Stderr, "  Void cases are auto-detected when no payload exists for a discriminant\n")
+		fmt.Fprintf(os.Stderr, "  Example:\n")
+		fmt.Fprintf(os.Stderr, "    // +xdr:union,key=Type,default=MessageTypeVoid\n")
+		fmt.Fprintf(os.Stderr, "    type NetworkMessage struct { Type MessageType; Payload []byte }\n")
+		fmt.Fprintf(os.Stderr, "    // +xdr:payload,union=NetworkMessage,discriminant=MessageTypeText\n")
+		fmt.Fprintf(os.Stderr, "    type TextPayload struct { Content string }\n\n")
 		fmt.Fprintf(os.Stderr, "Type Aliases:\n")
-		fmt.Fprintf(os.Stderr, "  Supported Go types: string, []byte, [N]byte, uint32, uint64, int32, int64, bool\n")
-		fmt.Fprintf(os.Stderr, "  Example: type UserID string `xdr:\"alias\"`\n\n")
+		fmt.Fprintf(os.Stderr, "  All type aliases are automatically detected and resolved\n")
+		fmt.Fprintf(os.Stderr, "  No explicit tags needed - the generator infers XDR types from Go types\n")
+		fmt.Fprintf(os.Stderr, "  Example: type UserID string  // automatically handled as string\n\n")
 		fmt.Fprintf(os.Stderr, "Output:\n")
 		fmt.Fprintf(os.Stderr, "  Creates <input>_xdr.go with generated Encode/Decode methods\n")
 		fmt.Fprintf(os.Stderr, "  Includes compile-time assertions that types implement xdr.Codec\n\n")
 		fmt.Fprintf(os.Stderr, "Examples:\n")
-		fmt.Fprintf(os.Stderr, "  xdrgen ./types/         # Generate for files with //go:generate in package\n")
-		fmt.Fprintf(os.Stderr, "  xdrgen types.go         # Generate for single file (must be self-contained)\n")
-		fmt.Fprintf(os.Stderr, "  xdrgen -s ./types/      # Generate silently (no output except errors)\n\n")
+		fmt.Fprintf(os.Stderr, "  xdrgen types.go         # Generate for single file\n")
+		fmt.Fprintf(os.Stderr, "  xdrgen ./               # Process package directory\n")
+		fmt.Fprintf(os.Stderr, "  xdrgen -s types.go      # Generate silently (no output except errors)\n")
+		fmt.Fprintf(os.Stderr, "  go generate             # Use with //go:generate directives\n\n")
 		fmt.Fprintf(os.Stderr, "Cross-file Dependencies:\n")
 		fmt.Fprintf(os.Stderr, "  Single file mode requires all types to be defined in the same file.\n")
 		fmt.Fprintf(os.Stderr, "  For cross-file dependencies (e.g., discriminant types in other files),\n")
@@ -395,16 +399,6 @@ func processFileWithPackageUnionContext(inputFile string, allUnionConfigs map[st
 		log.Fatal("Union configuration validation failed")
 	}
 
-	// Collect external imports
-	var externalImports []string
-	for _, typeInfo := range types {
-		imports := collectExternalImports([]TypeInfo{typeInfo})
-		externalImports = append(externalImports, imports...)
-	}
-
-	// Remove duplicates
-	externalImports = removeDuplicates(externalImports)
-
 	// Extract build tags from input file
 	buildTags := extractBuildTags(inputFile)
 
@@ -525,6 +519,8 @@ func processFileWithPackageUnionContext(inputFile string, allUnionConfigs map[st
 	if err != nil {
 		log.Fatal("Error creating code generator:", err)
 	}
+
+	externalImports := collectExternalImports(types, file)
 
 	// Generate output
 	var output strings.Builder

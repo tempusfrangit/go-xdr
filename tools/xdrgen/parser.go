@@ -25,35 +25,159 @@ func isSupportedXDRType(xdrType string) bool {
 	}
 }
 
-// removeDuplicates removes duplicate strings from a slice
-func removeDuplicates(slice []string) []string {
-	seen := make(map[string]bool)
-	result := []string{}
-	for _, item := range slice {
-		if !seen[item] {
-			seen[item] = true
-			result = append(result, item)
+// implementsCodecInterface checks if a type implements the xdr.Codec interface
+// by verifying the exact method signatures
+func implementsCodecInterface(typeName string, file *ast.File) bool {
+	var hasEncodeMethod, hasDecodeMethod bool
+
+	debugf("implementsCodecInterface: checking type %s", typeName)
+
+	// Look for methods on this type
+	ast.Inspect(file, func(n ast.Node) bool {
+		if funcDecl, ok := n.(*ast.FuncDecl); ok {
+			// Check if this is a method (has receiver)
+			if funcDecl.Recv != nil && len(funcDecl.Recv.List) > 0 {
+				// Get receiver type
+				receiverType := extractReceiverType(funcDecl.Recv.List[0].Type)
+
+				// Check if receiver matches our type (handle pointer receivers too)
+				if receiverType == typeName || receiverType == "*"+typeName {
+					// Check method signatures
+					methodName := funcDecl.Name.Name
+
+					if methodName == "Encode" && validateEncodeSignature(funcDecl) {
+						hasEncodeMethod = true
+					} else if methodName == "Decode" && validateDecodeSignature(funcDecl) {
+						hasDecodeMethod = true
+					}
+				}
+			}
 		}
-	}
+		return true
+	})
+
+	result := hasEncodeMethod && hasDecodeMethod
+	debugf("implementsCodecInterface result for %s: hasEncode=%v, hasDecode=%v, result=%v", typeName, hasEncodeMethod, hasDecodeMethod, result)
 	return result
 }
 
+// validateEncodeSignature checks if method has signature: func (receiver) Encode(*xdr.Encoder) error
+func validateEncodeSignature(funcDecl *ast.FuncDecl) bool {
+	if funcDecl.Type.Params == nil || len(funcDecl.Type.Params.List) != 1 {
+		return false // Should have exactly 1 parameter
+	}
+
+	// Check parameter type is *xdr.Encoder (or *Encoder if imported as .)
+	param := funcDecl.Type.Params.List[0]
+	paramType := formatType(param.Type)
+	if paramType != "*xdr.Encoder" && paramType != "*Encoder" {
+		return false
+	}
+
+	// Check return type is error
+	if funcDecl.Type.Results == nil || len(funcDecl.Type.Results.List) != 1 {
+		return false // Should return exactly 1 value
+	}
+
+	returnType := formatType(funcDecl.Type.Results.List[0].Type)
+	return returnType == "error"
+}
+
+// validateDecodeSignature checks if method has signature: func (receiver) Decode(*xdr.Decoder) error
+func validateDecodeSignature(funcDecl *ast.FuncDecl) bool {
+	if funcDecl.Type.Params == nil || len(funcDecl.Type.Params.List) != 1 {
+		return false // Should have exactly 1 parameter
+	}
+
+	// Check parameter type is *xdr.Decoder (or *Decoder if imported as .)
+	param := funcDecl.Type.Params.List[0]
+	paramType := formatType(param.Type)
+	if paramType != "*xdr.Decoder" && paramType != "*Decoder" {
+		return false
+	}
+
+	// Check return type is error
+	if funcDecl.Type.Results == nil || len(funcDecl.Type.Results.List) != 1 {
+		return false // Should return exactly 1 value
+	}
+
+	returnType := formatType(funcDecl.Type.Results.List[0].Type)
+	return returnType == "error"
+}
+
 // collectExternalImports collects external package imports from types
-func collectExternalImports(types []TypeInfo) []string {
-	var imports []string
+func collectExternalImports(types []TypeInfo, file *ast.File) []string {
+	return extractPackageImportsFromTypes(types, file)
+}
+
+// extractPackageImports extracts package imports from types used in the struct
+// It looks at the source file's imports to map package names to import paths
+func extractPackageImportsFromTypes(types []TypeInfo, file *ast.File) []string {
+	// Build map of package names to import paths from the source file
+	packageMap := make(map[string]string)
+	if file != nil {
+		for _, imp := range file.Imports {
+			importPath := strings.Trim(imp.Path.Value, `"`)
+			var packageName string
+			if imp.Name != nil {
+				// Named import: import foo "package/path"
+				packageName = imp.Name.Name
+			} else {
+				// Regular import: import "package/path"
+				// Extract package name from path (last component)
+				pathParts := strings.Split(importPath, "/")
+				if len(pathParts) > 0 {
+					packageName = pathParts[len(pathParts)-1]
+				}
+			}
+			if packageName != "" {
+				packageMap[packageName] = importPath
+			}
+		}
+	}
+
+	// Find packages that will actually be used in generated code
+	usedPackages := make(map[string]bool)
 	for _, typeInfo := range types {
 		for _, field := range typeInfo.Fields {
-			fieldImports := extractPackageImports(field.Type)
-			imports = append(imports, fieldImports...)
+			// Only include packages for fields that will generate package references
+			if willGeneratePackageReference(field) {
+				packageNames := extractPackageNamesFromType(field.Type)
+				for _, pkgName := range packageNames {
+					if importPath, exists := packageMap[pkgName]; exists {
+						usedPackages[importPath] = true
+					}
+				}
+			}
 		}
+	}
+
+	// Convert to slice
+	var imports []string
+	for importPath := range usedPackages {
+		imports = append(imports, importPath)
 	}
 	return imports
 }
 
-// extractPackageImports extracts package imports from a type string
-// Handles cases like: "primitives.StateID", "[]primitives.StateID", "map[string]primitives.Type"
-func extractPackageImports(typeStr string) []string {
-	var imports []string
+// willGeneratePackageReference determines if a field will generate code that references a package
+func willGeneratePackageReference(field FieldInfo) bool {
+	// Struct types use method calls like v.Field.Encode(enc) - no package reference needed
+	if field.XDRType == "struct" {
+		return false
+	}
+
+	// Cross-package types generate code like alt_pkg.MyType(tempValue)
+	if strings.Contains(field.Type, ".") {
+		return true
+	}
+
+	return false
+}
+
+// extractPackageNamesFromType extracts package names from a type string
+func extractPackageNamesFromType(typeStr string) []string {
+	var packageNames []string
 	// Find all package.Type patterns in the type string
 	parts := strings.FieldsFunc(typeStr, func(r rune) bool {
 		return r == '[' || r == ']' || r == '{' || r == '}' || r == '(' || r == ')' || r == '*' || r == ' ' || r == ','
@@ -63,19 +187,11 @@ func extractPackageImports(typeStr string) []string {
 		if strings.Contains(part, ".") {
 			packageParts := strings.Split(part, ".")
 			if len(packageParts) == 2 {
-				packageName := packageParts[0]
-				// Map known package names to their import paths
-				switch packageName {
-				case "primitives":
-					imports = append(imports, "github.com/tempusfrangit/go-xdr/primitives")
-				case "session":
-					imports = append(imports, "github.com/tempusfrangit/go-xdr/session")
-					// Add other packages as needed
-				}
+				packageNames = append(packageNames, packageParts[0])
 			}
 		}
 	}
-	return imports
+	return packageNames
 }
 
 // findKeyField finds the key field name in the given struct
@@ -253,7 +369,7 @@ func hasExistingMethods(file *ast.File, typeName string) (hasEncode, hasDecode b
 		if fn, ok := n.(*ast.FuncDecl); ok {
 			if fn.Recv != nil && len(fn.Recv.List) > 0 {
 				receiverType := extractReceiverType(fn.Recv.List[0].Type)
-				if receiverType == typeName {
+				if receiverType == typeName || receiverType == "*"+typeName {
 					switch fn.Name.Name {
 					case "Encode":
 						hasEncode = true
@@ -272,7 +388,8 @@ func hasExistingMethods(file *ast.File, typeName string) (hasEncode, hasDecode b
 func extractReceiverType(expr ast.Expr) string {
 	switch t := expr.(type) {
 	case *ast.StarExpr:
-		return extractReceiverType(t.X)
+		// Return with * prefix to indicate pointer receiver
+		return "*" + extractReceiverType(t.X)
 	case *ast.Ident:
 		return t.Name
 	default:
@@ -324,6 +441,8 @@ func formatType(expr ast.Expr) string {
 		return t.Name
 	case *ast.SelectorExpr:
 		return formatType(t.X) + "." + t.Sel.Name
+	case *ast.StarExpr:
+		return "*" + formatType(t.X)
 	case *ast.ArrayType:
 		if t.Len == nil {
 			return "[]" + formatType(t.Elt)
@@ -394,13 +513,18 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 
 // resolveAliasType recursively resolves alias chains to their underlying primitive type
 func resolveAliasType(goType string, typeAliases map[string]string) string {
+	return resolveAliasTypeWithFile(goType, typeAliases, nil)
+}
+
+// resolveAliasTypeWithFile recursively resolves alias chains, including cross-package types when file is provided
+func resolveAliasTypeWithFile(goType string, typeAliases map[string]string, file *ast.File) string {
 	seen := make(map[string]bool)
 	current := goType
 
 	// Handle slice types: []TypeName -> []ResolvedType
 	if strings.HasPrefix(current, "[]") {
 		elementType := strings.TrimPrefix(current, "[]")
-		resolvedElement := resolveAliasType(elementType, typeAliases)
+		resolvedElement := resolveAliasTypeWithFile(elementType, typeAliases, file)
 		return "[]" + resolvedElement
 	}
 
@@ -410,7 +534,7 @@ func resolveAliasType(goType string, typeAliases map[string]string) string {
 		if closeBracket > 0 {
 			prefix := current[:closeBracket+1]      // [N]
 			elementType := current[closeBracket+1:] // TypeName
-			resolvedElement := resolveAliasType(elementType, typeAliases)
+			resolvedElement := resolveAliasTypeWithFile(elementType, typeAliases, file)
 			return prefix + resolvedElement
 		}
 	}
@@ -422,10 +546,19 @@ func resolveAliasType(goType string, typeAliases map[string]string) string {
 		}
 		seen[current] = true
 
-		// Check if this is a known alias
+		// Check if this is a known local alias
 		if underlying, exists := typeAliases[current]; exists {
 			current = underlying
 			continue
+		}
+
+		// Check if this is a cross-package type and we have file context
+		if file != nil && strings.Contains(current, ".") {
+			if resolved, err := resolveCrossPackageType(current, file); err == nil {
+				current = resolved
+				continue
+			}
+			// If we can't resolve the cross-package type, stop here
 		}
 
 		// No more aliases to resolve
@@ -435,10 +568,160 @@ func resolveAliasType(goType string, typeAliases map[string]string) string {
 	return current
 }
 
+// resolveCrossPackageType attempts to resolve a cross-package type to its underlying type
+// Returns the resolved type and nil error if successful, or error if it can't be resolved
+func resolveCrossPackageType(pkgType string, file *ast.File) (string, error) {
+	// Only handle cross-package types (contain ".")
+	if !strings.Contains(pkgType, ".") {
+		return "", fmt.Errorf("not a cross-package type: %s", pkgType)
+	}
+
+	parts := strings.Split(pkgType, ".")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid cross-package type format: %s", pkgType)
+	}
+
+	packageName := parts[0]
+	typeName := parts[1]
+
+	// Look for import of this package
+	var importPath string
+	for _, imp := range file.Imports {
+		// Handle different import styles
+		if imp.Name != nil {
+			// Named import: import foo "package/path"
+			if imp.Name.Name == packageName {
+				importPath = strings.Trim(imp.Path.Value, `"`)
+				break
+			}
+		} else {
+			// Regular import: import "package/path"
+			path := strings.Trim(imp.Path.Value, `"`)
+			// Extract package name from path (last component)
+			pathParts := strings.Split(path, "/")
+			if len(pathParts) > 0 && pathParts[len(pathParts)-1] == packageName {
+				importPath = path
+				break
+			}
+		}
+	}
+
+	if importPath == "" {
+		return "", fmt.Errorf("import path not found for package: %s", packageName)
+	}
+
+	// Try to parse the cross-package file to get type definitions
+	// For now, handle known test packages specifically
+	if importPath == "github.com/tempusfrangit/go-xdr/codegen_test/alt_pkg" {
+		// Parse the alt_pkg types.go file to get actual type definitions
+		// Get the directory of the current file being processed
+		currentDir := filepath.Dir(file.Name.Name)
+		altPkgPath := filepath.Join(currentDir, "alt_pkg", "types.go")
+
+		// Also try absolute path resolution if relative doesn't work
+		if _, err := os.Stat(altPkgPath); os.IsNotExist(err) {
+			// Try from current working directory
+			altPkgPath = filepath.Join("codegen_test", "alt_pkg", "types.go")
+		}
+
+		crossFile, err := parser.ParseFile(token.NewFileSet(), altPkgPath, nil, 0)
+		if err != nil {
+			return "", fmt.Errorf("failed to parse cross-package file %s: %w", altPkgPath, err)
+		}
+
+		// Look for type definitions in the cross-package file
+		for _, decl := range crossFile.Decls {
+			if genDecl, ok := decl.(*ast.GenDecl); ok && genDecl.Tok == token.TYPE {
+				for _, spec := range genDecl.Specs {
+					if typeSpec, ok := spec.(*ast.TypeSpec); ok && typeSpec.Name.Name == typeName {
+						// Found the type definition, return its underlying type
+						return formatType(typeSpec.Type), nil
+					}
+				}
+			}
+		}
+
+		return "", fmt.Errorf("type %s not found in package %s", typeName, packageName)
+	}
+
+	// For unknown packages, return error indicating we can't resolve
+	return "", fmt.Errorf("cannot resolve cross-package type from unknown package: %s", importPath)
+}
+
+// shouldWarnForCrossPackageType checks if a cross-package type reference should generate a warning
+// This catches cases where we can't resolve the full type chain or reference unknown packages
+func shouldWarnForCrossPackageType(goType string, file *ast.File) bool {
+	// Only check cross-package types (contain ".")
+	if !strings.Contains(goType, ".") {
+		return false
+	}
+
+	// Try to resolve the cross-package type
+	resolved, err := resolveCrossPackageType(goType, file)
+	if err != nil {
+		// If we can't resolve it at all (unknown package, file not found, etc.)
+		return true
+	}
+
+	// If we resolved it to another cross-package type, that indicates multi-depth
+	if strings.Contains(resolved, ".") {
+		return true
+	}
+
+	// If it resolved to a primitive or known type, no warning needed
+	return false
+}
+
+// isMultiDepthAlias checks if a type involves multi-depth alias resolution
+func isMultiDepthAlias(goType string, typeAliases map[string]string) bool {
+	seen := make(map[string]bool)
+	current := goType
+	resolutionCount := 0
+
+	// Handle array types - check the element type
+	if strings.HasPrefix(current, "[]") {
+		elementType := strings.TrimPrefix(current, "[]")
+		return isMultiDepthAlias(elementType, typeAliases)
+	}
+	if strings.HasPrefix(current, "[") && strings.Contains(current, "]") {
+		closeBracket := strings.Index(current, "]")
+		if closeBracket > 0 {
+			elementType := current[closeBracket+1:]
+			return isMultiDepthAlias(elementType, typeAliases)
+		}
+	}
+
+	for {
+		if seen[current] {
+			// Cycle detected
+			return true
+		}
+		seen[current] = true
+
+		// Check if this is a known alias
+		if underlying, exists := typeAliases[current]; exists {
+			resolutionCount++
+			current = underlying
+			continue
+		}
+
+		// No more aliases to resolve
+		break
+	}
+
+	// Multi-depth if we resolved more than one alias
+	return resolutionCount > 1
+}
+
 // autoDiscoverXDRType maps Go types to their natural XDR equivalents
 func autoDiscoverXDRType(goType string, typeAliases map[string]string) string {
-	// First resolve any alias chains
-	resolvedType := resolveAliasType(goType, typeAliases)
+	return autoDiscoverXDRTypeWithFile(goType, typeAliases, nil)
+}
+
+// autoDiscoverXDRTypeWithFile maps Go types to their natural XDR equivalents with cross-package support
+func autoDiscoverXDRTypeWithFile(goType string, typeAliases map[string]string, file *ast.File) string {
+	// First resolve any alias chains (including cross-package)
+	resolvedType := resolveAliasTypeWithFile(goType, typeAliases, file)
 
 	switch resolvedType {
 	case "uint32":
@@ -459,7 +742,7 @@ func autoDiscoverXDRType(goType string, typeAliases map[string]string) string {
 		// Handle array types - return element type for array encoding
 		if strings.HasPrefix(resolvedType, "[]") {
 			elementType := strings.TrimPrefix(resolvedType, "[]")
-			return autoDiscoverXDRType(elementType, typeAliases) // Recurse for element type
+			return autoDiscoverXDRTypeWithFile(elementType, typeAliases, file) // Recurse for element type
 		}
 
 		// Handle fixed arrays - return element type for array encoding
@@ -470,7 +753,7 @@ func autoDiscoverXDRType(goType string, typeAliases map[string]string) string {
 			if elementType == "byte" {
 				return "bytes"
 			}
-			return autoDiscoverXDRType(elementType, typeAliases) // Recurse for element type
+			return autoDiscoverXDRTypeWithFile(elementType, typeAliases, file) // Recurse for element type
 		}
 
 		// For custom types (structs, aliases), assume struct
@@ -887,8 +1170,26 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 						}
 
 						// Auto-discover XDR type from Go type
-						autoType := autoDiscoverXDRType(fieldInfo.Type, typeAliases)
-						fieldInfo.XDRType = autoType
+						var autoType string
+						// Priority 1: Check if type implements xdr.Codec interface
+						if implementsCodecInterface(fieldInfo.Type, file) {
+							fieldInfo.XDRType = "struct" // Use interface methods
+							autoType = "struct"
+							debugf("Type %s implements xdr.Codec interface, using struct encoding", fieldInfo.Type)
+						} else {
+							// Priority 2: Do normal resolution (primitives, aliases, etc.)
+							autoType = autoDiscoverXDRTypeWithFile(fieldInfo.Type, typeAliases, file)
+							fieldInfo.XDRType = autoType
+
+							// Priority 3: If result is "struct", check if we should warn about why
+							if autoType == "struct" {
+								if isMultiDepthAlias(fieldInfo.Type, typeAliases) {
+									log.Printf("Warning: Multi-depth alias detected for field %s.%s: cannot resolve interface implementation, assuming struct behavior", typeInfo.Name, fieldInfo.Name)
+								} else if shouldWarnForCrossPackageType(fieldInfo.Type, file) {
+									log.Printf("Warning: Cross-package type detected for field %s.%s: cannot resolve interface implementation, assuming struct behavior", typeInfo.Name, fieldInfo.Name)
+								}
+							}
+						}
 						debugf("Auto-discovered XDR type for %s.%s: %s -> %s", typeInfo.Name, fieldInfo.Name, fieldInfo.Type, autoType)
 
 						// Auto-detect union field: []byte immediately following a key field

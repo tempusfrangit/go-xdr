@@ -68,8 +68,9 @@ type TemplateManager struct {
 // CodeGenerator handles XDR code generation with embedded template manager
 // Add structTypes field to hold set of struct type names
 type CodeGenerator struct {
-	tm          *TemplateManager
-	structTypes map[string]bool
+	tm           *TemplateManager
+	structTypes  map[string]bool
+	usedPackages map[string]bool // Track packages actually used in generated code
 }
 
 // NewCodeGenerator creates a new code generator with initialized templates
@@ -83,7 +84,28 @@ func NewCodeGenerator(structTypeNames []string) (*CodeGenerator, error) {
 	for _, name := range structTypeNames {
 		structTypes[name] = true
 	}
-	return &CodeGenerator{tm: tm, structTypes: structTypes}, nil
+	return &CodeGenerator{tm: tm, structTypes: structTypes, usedPackages: make(map[string]bool)}, nil
+}
+
+// GetUsedPackages returns the list of packages actually used in generated code
+func (cg *CodeGenerator) GetUsedPackages() []string {
+	var packages []string
+	for pkg := range cg.usedPackages {
+		packages = append(packages, pkg)
+	}
+	debugf("GetUsedPackages: tracked packages: %v", packages)
+	return packages
+}
+
+// trackPackageUsage extracts and tracks packages used in type references
+func (cg *CodeGenerator) trackPackageUsage(typeRef string) {
+	if strings.Contains(typeRef, ".") {
+		parts := strings.Split(typeRef, ".")
+		if len(parts) == 2 {
+			packageName := parts[0]
+			cg.usedPackages[packageName] = true
+		}
+	}
 }
 
 // NewTemplateManager creates a new template manager with all required templates
@@ -598,6 +620,8 @@ func (cg *CodeGenerator) generateBasicDecodeCode(field FieldInfo) (string, error
 
 	// Handle struct types specially
 	if field.XDRType == "struct" {
+		// Note: We don't track package usage for struct types because they use method calls
+		// like v.Field.Decode(dec) which don't require package prefixes
 		data := FieldData{
 			FieldName: field.Name,
 		}
@@ -619,6 +643,8 @@ func (cg *CodeGenerator) generateBasicDecodeCode(field FieldInfo) (string, error
 		// Field type is an alias, need to convert from underlying type
 		typeConversion = field.Type + "("
 		typeConversionEnd = ")"
+		// Track package usage for cross-package types
+		cg.trackPackageUsage(field.Type)
 	}
 
 	data := FieldData{
@@ -852,7 +878,16 @@ func (cg *CodeGenerator) getEncodeMethod(xdrType string) string {
 		if strings.HasPrefix(xdrType, "fixed:") {
 			return "EncodeFixedBytes"
 		}
-		// Check if this is a struct type
+		// For unknown types, check if they resolve to a known primitive
+		// This handles cross-package type aliases that should resolve to primitives
+		if strings.Contains(xdrType, ".") {
+			// Cross-package type - don't assume it implements Codec
+			// Instead, this should be an error or the caller should provide more context
+			// For now, return empty to indicate unsupported
+			return ""
+		}
+
+		// Check if this is a verified struct type that we know should have Encode method
 		if cg.structTypes[xdrType] {
 			return "Encode"
 		}
@@ -912,7 +947,16 @@ func (cg *CodeGenerator) getDecodeMethod(xdrType string) string {
 		if strings.HasPrefix(xdrType, "fixed:") {
 			return "DecodeFixedBytes"
 		}
-		// Check if this is a struct type
+		// For unknown types, check if they resolve to a known primitive
+		// This handles cross-package type aliases that should resolve to primitives
+		if strings.Contains(xdrType, ".") {
+			// Cross-package type - don't assume it implements Codec
+			// Instead, this should be an error or the caller should provide more context
+			// For now, return empty to indicate unsupported
+			return ""
+		}
+
+		// Check if this is a verified struct type that we know should have Decode method
 		if cg.structTypes[xdrType] {
 			return "Decode"
 		}
