@@ -625,9 +625,9 @@ const (
 	MemBenchStatusPending MemBenchStatus = 2
 )
 
-// +xdr:generate
+// +xdr:union,key=Status,default=nil
 type MemBenchResult struct {
-	Status MemBenchStatus `xdr:"key,default=nil"` // discriminant with void default
+	Status MemBenchStatus // discriminant with void default
 	Data   []byte         // auto-detected as union payload
 }
 

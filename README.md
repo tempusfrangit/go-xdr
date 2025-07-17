@@ -136,6 +136,7 @@ go generate
 - `xdr:"-"` - exclude field from encoding
 
 #### Everything Else Auto-Detected
+**Cross-package type handling**: Automatically detects and resolves type aliases across packages, with proper handling of types that have incompatible Encode/Decode methods.
 **Basic types** (from Go syntax):
 - `uint32`, `uint64`, `int32`, `int64` - integers
 - `string` - strings
@@ -144,11 +145,13 @@ go generate
 - `[]Type`, `[N]Type` - arrays (element type auto-detected)
 - `CustomStruct` - structs (must implement xdr.Codec)
 
-**Type aliases** (auto-resolved with recursive unwrapping):
+**Type aliases** (auto-resolved with recursive unwrapping and cross-package support):
 - `type UserID string` → string with casting
 - `type Hash [16]byte` → bytes with `v.Hash[:]` conversion
 - `type StatusCode uint32` → uint32 with casting
 - `type Alias1 = Alias2; type Alias2 = string` → string (recursive)
+- `type CrossPkgAlias = otherpkg.SomeType` → resolved to underlying type
+- Smart detection of xdr.Codec interface compliance vs primitive encoding
 
 ### Discriminated Unions (Auto-Detected)
 
@@ -164,7 +167,7 @@ type StatusOnly struct {
 }
 
 // Mixed union with void default
-// +xdr:union,key=OpCode,default=OpUnknown
+// +xdr:union,key=OpCode,default=nil
 type MixedOperation struct {
     OpCode OpCode // discriminant
     Result []byte // auto-detected as union payload
@@ -184,7 +187,7 @@ type SuccessPayload struct {
 - **Auto-detection**: `[]byte` field immediately following discriminant = union payload
 - **Separate payload directives**: `// +xdr:payload,union=UnionName,discriminant=ConstName`
 - **All-void unions**: `default=` optional (automatically inferred when no payloads exist)
-- **Mixed unions**: `default=ConstName` for unknown discriminants
+- **Mixed unions**: `default=nil` for void default or `default=StructName` for struct default
 - **Alias resolution**: Discriminant can be any uint32 alias, automatically resolved
 - **Type safety**: Compile-time validation with interface assertions
 
@@ -275,7 +278,7 @@ Comprehensive examples are available in the [examples/](examples/) directory:
 - **[encode-decode/](examples/encode-decode/)** - Basic XDR encoding/decoding operations
 - **[autogen/](examples/autogen/)** - Ultra-minimal auto-generated XDR methods
 - **[discriminated-union/](examples/discriminated-union/)** - Auto-detected discriminated unions
-- **[alias-types/](examples/alias-types/)** - Type alias resolution and conversion
+- **[alias/](examples/alias/)** - Type alias resolution and conversion
 - **[mixed-manual/](examples/mixed-manual/)** - Mixed auto-generated and manual XDR implementations
 
 Each example includes a README with detailed explanations and can be run independently.

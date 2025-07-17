@@ -1,7 +1,7 @@
 // XDR Code Generator - Ultra-Minimal Edition
 //
 // Generates XDR encoding/decoding methods with maximum auto-detection and minimal tagging.
-// Only 2 tag types: `xdr:"key[,default=X]"` and `xdr:"-"`. Everything else auto-detected.
+// Directive-based system: `// +xdr:generate`, `// +xdr:union,key=Field[,default=X]`, `// +xdr:payload,union=Name,discriminant=Const`. Only 1 tag type: `xdr:"-"`. Everything else auto-detected.
 //
 // Usage: xdrgen [flags] <go-files...>
 //
@@ -14,10 +14,10 @@
 //	    Secret string `xdr:"-"` // excluded
 //	}
 //
-//	// +xdr:generate
+//	// +xdr:union,key=OpCode
 //	type Operation struct {
-//	    OpCode OpCode `xdr:"key"` // union discriminant
-//	    Result []byte            // auto-detected union payload
+//	    OpCode OpCode // union discriminant
+//	    Result []byte // auto-detected union payload
 //	}
 //
 // See help.txt for complete documentation.

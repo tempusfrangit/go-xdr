@@ -35,10 +35,11 @@ func (c *CustomMessage) UnmarshalXDR(dec *xdr.Decoder) error {
 
 ### Mixed Auto/Manual
 ```go
+// +xdr:generate
 type MixedStruct struct {
-    AutoField   string        `xdr:"string"`       // Auto-generated
-    ManualField []uint32      // Manual implementation
-    Header      MessageHeader `xdr:"struct"`       // Auto-generated
+    AutoField   string        // Auto-detected as string
+    ManualField []uint32      // Manual implementation (implements xdr.Codec)
+    Header      MessageHeader // Auto-detected as struct
 }
 ```
 

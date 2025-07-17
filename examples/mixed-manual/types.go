@@ -172,7 +172,7 @@ func (v *ValidatedData) Decode(dec *xdr.Decoder) error {
 
 // TimestampMessage demonstrates custom encoding for special types
 type TimestampMessage struct {
-	Message   string `xdr:"string"`
+	Message   string // Auto-detected as string
 	CreatedAt uint32 `xdr:"-"` // Custom encoded as both timestamp and readable format
 }
 
