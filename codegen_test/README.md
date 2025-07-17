@@ -1,0 +1,1 @@
+`codegen_test` is used to ensure many codegen edge cases create code that can compile. It does not provide any additional testing outside of "does the generated code compile".
