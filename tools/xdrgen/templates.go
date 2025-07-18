@@ -609,7 +609,7 @@ func (cg *CodeGenerator) generateFixedArrayEncodeCode(field FieldInfo) (string, 
 // generateBasicDecodeCode generates basic decode code for a field
 func (cg *CodeGenerator) generateBasicDecodeCode(field FieldInfo) (string, error) {
 	// Special case: []byte with xdr:"bytes" should use bytes decoding, not array decoding
-	if field.Type == "[]byte" && field.XDRType == "bytes" {
+	if (field.Type == "[]byte" || field.ResolvedType == "[]byte") && field.XDRType == "bytes" {
 		method := cg.getDecodeMethod(field.XDRType)
 		if method == "" {
 			return "", fmt.Errorf("unsupported XDR type for decoding: %s", field.XDRType)
@@ -635,9 +635,9 @@ func (cg *CodeGenerator) generateBasicDecodeCode(field FieldInfo) (string, error
 	}
 
 	// Special case: [N]byte alias with xdr:"bytes" should use DecodeFixedBytesInto optimization
-	// Check if ResolvedType is a fixed byte array
+	// Check if ResolvedType is a fixed byte array ([N]byte) but NOT variable array ([]byte)
 	if field.XDRType == "bytes" && field.ResolvedType != "" &&
-		strings.HasPrefix(field.ResolvedType, "[") && strings.Contains(field.ResolvedType, "]byte") {
+		strings.HasPrefix(field.ResolvedType, "[") && !strings.HasPrefix(field.ResolvedType, "[]") && strings.Contains(field.ResolvedType, "]byte") {
 		return cg.tm.ExecuteTemplate("fixed_bytes_decode", FieldData{
 			FieldName: field.Name,
 		})

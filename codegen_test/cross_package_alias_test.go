@@ -9,14 +9,18 @@ import (
 )
 
 // Test aliases to types in another package that have non-conforming Encode/Decode methods
-type AliasToMyBytes altpkg.MyBytes
-type AliasToMyString altpkg.MyString
+type AliasToMyBytes altpkg.MyBytes     // Type definition (no =)
+type AliasToMyString altpkg.MyString   // Type definition (no =)
+type TrueAliasBytes = altpkg.MyBytes   // True type alias (with =)
+type TrueAliasString = altpkg.MyString // True type alias (with =)
 
 // +xdr:generate
 type CrossPackageTest struct {
 	ID              uint32
-	Data            AliasToMyBytes                // Should resolve to []byte, not call alt_pkg.MyBytes.Encode()
-	Name            AliasToMyString               // Should resolve to string, not call alt_pkg.MyString.Encode()
+	Data            AliasToMyBytes                // Type definition: should resolve to []byte
+	Name            AliasToMyString               // Type definition: should resolve to string
+	TrueBytes       TrueAliasBytes                // True alias: should resolve to []byte
+	TrueString      TrueAliasString               // True alias: should resolve to string
 	Direct          altpkg.MyBytes                // Direct use of cross-package type
 	Another         altpkg.AnotherString          // Should resolve to string, this does not a non-conforming Encode/Decode method
 	MyInterface     MyInterface                   // Should use interface methods (has conforming Encode/Decode)

@@ -512,20 +512,15 @@ func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.N
 	return parseFileInternal(filename, nil, nil)
 }
 
-// resolveAliasType recursively resolves alias chains to their underlying primitive type
-func resolveAliasType(goType string, typeAliases map[string]string) string {
-	return resolveAliasTypeWithFile(goType, typeAliases, nil)
-}
-
 // resolveAliasTypeWithFile recursively resolves alias chains, including cross-package types when file is provided
-func resolveAliasTypeWithFile(goType string, typeAliases map[string]string, file *ast.File) string {
+func resolveAliasTypeWithFile(goType string, typeAliases map[string]string, file *ast.File, filename string) string {
 	seen := make(map[string]bool)
 	current := goType
 
 	// Handle slice types: []TypeName -> []ResolvedType
 	if strings.HasPrefix(current, "[]") {
 		elementType := strings.TrimPrefix(current, "[]")
-		resolvedElement := resolveAliasTypeWithFile(elementType, typeAliases, file)
+		resolvedElement := resolveAliasTypeWithFile(elementType, typeAliases, file, filename)
 		return "[]" + resolvedElement
 	}
 
@@ -535,7 +530,7 @@ func resolveAliasTypeWithFile(goType string, typeAliases map[string]string, file
 		if closeBracket > 0 {
 			prefix := current[:closeBracket+1]      // [N]
 			elementType := current[closeBracket+1:] // TypeName
-			resolvedElement := resolveAliasTypeWithFile(elementType, typeAliases, file)
+			resolvedElement := resolveAliasTypeWithFile(elementType, typeAliases, file, filename)
 			return prefix + resolvedElement
 		}
 	}
@@ -555,7 +550,7 @@ func resolveAliasTypeWithFile(goType string, typeAliases map[string]string, file
 
 		// Check if this is a cross-package type and we have file context
 		if file != nil && strings.Contains(current, ".") {
-			if resolved, err := resolveCrossPackageType(current, file); err == nil {
+			if resolved, err := resolveCrossPackageType(current, file, filename); err == nil {
 				current = resolved
 				continue
 			}
@@ -571,7 +566,7 @@ func resolveAliasTypeWithFile(goType string, typeAliases map[string]string, file
 
 // resolveCrossPackageType attempts to resolve a cross-package type to its underlying type
 // Returns the resolved type and nil error if successful, or error if it can't be resolved
-func resolveCrossPackageType(pkgType string, file *ast.File) (string, error) {
+func resolveCrossPackageType(pkgType string, file *ast.File, filename string) (string, error) {
 	// Only handle cross-package types (contain ".")
 	if !strings.Contains(pkgType, ".") {
 		return "", fmt.Errorf("not a cross-package type: %s", pkgType)
@@ -613,7 +608,7 @@ func resolveCrossPackageType(pkgType string, file *ast.File) (string, error) {
 
 	// Try to parse the cross-package file to get type definitions
 	// Get the directory of the current file being processed
-	currentDir := filepath.Dir(file.Name.Name)
+	currentDir := filepath.Dir(filename)
 
 	// Try to find the package directory relative to the current file
 	// Use the actual import path to determine the directory name
@@ -658,14 +653,14 @@ func resolveCrossPackageType(pkgType string, file *ast.File) (string, error) {
 
 // shouldWarnForCrossPackageType checks if a cross-package type reference should generate a warning
 // This catches cases where we can't resolve the full type chain or reference unknown packages
-func shouldWarnForCrossPackageType(goType string, file *ast.File) bool {
+func shouldWarnForCrossPackageType(goType string, file *ast.File, filename string) bool {
 	// Only check cross-package types (contain ".")
 	if !strings.Contains(goType, ".") {
 		return false
 	}
 
 	// Try to resolve the cross-package type
-	resolved, err := resolveCrossPackageType(goType, file)
+	resolved, err := resolveCrossPackageType(goType, file, filename)
 	if err != nil {
 		// If we can't resolve it at all (unknown package, file not found, etc.)
 		return true
@@ -723,13 +718,13 @@ func isMultiDepthAlias(goType string, typeAliases map[string]string) bool {
 
 // autoDiscoverXDRType maps Go types to their natural XDR equivalents
 func autoDiscoverXDRType(goType string, typeAliases map[string]string) string {
-	return autoDiscoverXDRTypeWithFile(goType, typeAliases, nil)
+	return autoDiscoverXDRTypeWithFile(goType, typeAliases, nil, "")
 }
 
 // autoDiscoverXDRTypeWithFile maps Go types to their natural XDR equivalents with cross-package support
-func autoDiscoverXDRTypeWithFile(goType string, typeAliases map[string]string, file *ast.File) string {
+func autoDiscoverXDRTypeWithFile(goType string, typeAliases map[string]string, file *ast.File, filename string) string {
 	// First resolve any alias chains (including cross-package)
-	resolvedType := resolveAliasTypeWithFile(goType, typeAliases, file)
+	resolvedType := resolveAliasTypeWithFile(goType, typeAliases, file, filename)
 
 	switch resolvedType {
 	case "uint32":
@@ -750,7 +745,7 @@ func autoDiscoverXDRTypeWithFile(goType string, typeAliases map[string]string, f
 		// Handle array types - return element type for array encoding
 		if strings.HasPrefix(resolvedType, "[]") {
 			elementType := strings.TrimPrefix(resolvedType, "[]")
-			return autoDiscoverXDRTypeWithFile(elementType, typeAliases, file) // Recurse for element type
+			return autoDiscoverXDRTypeWithFile(elementType, typeAliases, file, filename) // Recurse for element type
 		}
 
 		// Handle fixed arrays - return element type for array encoding
@@ -761,7 +756,7 @@ func autoDiscoverXDRTypeWithFile(goType string, typeAliases map[string]string, f
 			if elementType == "byte" {
 				return "bytes"
 			}
-			return autoDiscoverXDRTypeWithFile(elementType, typeAliases, file) // Recurse for element type
+			return autoDiscoverXDRTypeWithFile(elementType, typeAliases, file, filename) // Recurse for element type
 		}
 
 		// For custom types (structs, aliases), assume struct
@@ -974,12 +969,15 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 	// Build a map of type aliases for lookup
 	typeAliases := make(map[string]string)
 
-	// First pass: collect all type definitions (type Alias Underlying)
+	// First pass: collect all type definitions and type aliases
 	ast.Inspect(file, func(n ast.Node) bool {
 		if node, ok := n.(*ast.TypeSpec); ok {
-			if node.Assign == 0 { // This is a type definition (type Alias Underlying)
-				underlyingType := formatType(node.Type)
-				typeAliases[node.Name.Name] = underlyingType
+			underlyingType := formatType(node.Type)
+			typeAliases[node.Name.Name] = underlyingType
+			if node.Assign == 0 {
+				debugf("Collected type definition: %s -> %s", node.Name.Name, underlyingType)
+			} else {
+				debugf("Collected type alias: %s = %s", node.Name.Name, underlyingType)
 			}
 		}
 		return true
@@ -1150,9 +1148,16 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 					for _, name := range field.Names {
 						fieldType := formatType(field.Type)
 						fieldInfo := FieldInfo{
-							Name:         name.Name,
-							Type:         fieldType,
-							ResolvedType: resolveAliasType(fieldType, typeAliases),
+							Name: name.Name,
+							Type: fieldType,
+						}
+
+						// Only resolve ResolvedType for non-Codec types
+						// If a type implements xdr.Codec, keep ResolvedType as the original type
+						if implementsCodecInterface(fieldType, file) {
+							fieldInfo.ResolvedType = fieldType // Keep original type name
+						} else {
+							fieldInfo.ResolvedType = resolveAliasTypeWithFile(fieldType, typeAliases, file, filename)
 						}
 
 						// Parse XDR tag if present
@@ -1192,14 +1197,14 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 							debugf("Type %s implements xdr.Codec interface, using struct encoding", fieldInfo.Type)
 						} else {
 							// Priority 2: Do normal resolution (primitives, aliases, etc.)
-							autoType = autoDiscoverXDRTypeWithFile(fieldInfo.Type, typeAliases, file)
+							autoType = autoDiscoverXDRTypeWithFile(fieldInfo.Type, typeAliases, file, filename)
 							fieldInfo.XDRType = autoType
 
 							// Priority 3: If result is "struct", check if we should warn about why
 							if autoType == "struct" {
 								if isMultiDepthAlias(fieldInfo.Type, typeAliases) {
 									log.Printf("Warning: Multi-depth alias detected for field %s.%s: cannot resolve interface implementation, assuming struct behavior", typeInfo.Name, fieldInfo.Name)
-								} else if shouldWarnForCrossPackageType(fieldInfo.Type, file) {
+								} else if shouldWarnForCrossPackageType(fieldInfo.Type, file, filename) {
 									log.Printf("Warning: Cross-package type detected for field %s.%s: cannot resolve interface implementation, assuming struct behavior", typeInfo.Name, fieldInfo.Name)
 								}
 							}
