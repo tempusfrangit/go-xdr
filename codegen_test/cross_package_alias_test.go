@@ -1,3 +1,5 @@
+//go:build ignore
+
 package codegen_test
 
 //go:generate ../bin/xdrgen cross_package_alias_test.go

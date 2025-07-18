@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/tools/go/packages"
 )
 
 // isSupportedXDRType checks if an auto-detected XDR type is supported by the generator
@@ -606,22 +608,87 @@ func resolveCrossPackageType(pkgType string, file *ast.File, filename string) (s
 		return "", fmt.Errorf("import path not found for package: %s", packageName)
 	}
 
-	// Try to parse the cross-package file to get type definitions
-	// Get the directory of the current file being processed
-	currentDir := filepath.Dir(filename)
+	// Try to resolve the cross-package type
+	// First check if this is within the same module or external
+	moduleRoot, moduleName, err := findModuleInfo(filename)
+	if err != nil {
+		return "", fmt.Errorf("failed to find module info: %w", err)
+	}
 
-	// Try to find the package directory relative to the current file
-	// Use the actual import path to determine the directory name
-	importPathParts := strings.Split(importPath, "/")
-	actualPackageName := importPathParts[len(importPathParts)-1]
-	packageDir := filepath.Join(currentDir, actualPackageName)
+	// Check if this import is within our module
+	if strings.HasPrefix(importPath, moduleName) {
+		// Internal module - use filesystem resolution
+		packageDir, err := findPackageDirectoryInModule(moduleRoot, importPath, moduleName)
+		if err != nil {
+			return "", fmt.Errorf("failed to find internal package directory for %s: %w", importPath, err)
+		}
+		return resolveTypeInPackageDir(packageDir, typeName)
+	} else {
+		// External module - use go/types resolution
+		return resolveExternalPackageType(importPath, typeName)
+	}
+}
 
-	// Try to find Go files in the package directory
+// findModuleInfo finds the go.mod file and returns module root directory and module name
+func findModuleInfo(filename string) (moduleRoot, moduleName string, err error) {
+	dir := filepath.Dir(filename)
+
+	// Walk up the directory tree looking for go.mod
+	for {
+		goModPath := filepath.Join(dir, "go.mod")
+		if _, err := os.Stat(goModPath); err == nil {
+			// Found go.mod, parse it to get module name
+			content, err := os.ReadFile(goModPath)
+			if err != nil {
+				return "", "", fmt.Errorf("failed to read go.mod: %w", err)
+			}
+
+			// Extract module name from first line: "module <name>"
+			lines := strings.Split(string(content), "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if strings.HasPrefix(line, "module ") {
+					moduleName = strings.TrimSpace(strings.TrimPrefix(line, "module"))
+					return dir, moduleName, nil
+				}
+			}
+			return "", "", fmt.Errorf("no module declaration found in go.mod")
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Reached root directory without finding go.mod
+			return "", "", fmt.Errorf("no go.mod found")
+		}
+		dir = parent
+	}
+}
+
+// findPackageDirectoryInModule finds the package directory within the module
+func findPackageDirectoryInModule(moduleRoot, importPath, moduleName string) (string, error) {
+	// Remove module name prefix from import path to get relative path
+	if !strings.HasPrefix(importPath, moduleName) {
+		return "", fmt.Errorf("import path %s does not start with module name %s", importPath, moduleName)
+	}
+
+	relativePath := strings.TrimPrefix(importPath, moduleName)
+	relativePath = strings.TrimPrefix(relativePath, "/") // Remove leading slash if present
+
+	packageDir := filepath.Join(moduleRoot, relativePath)
+
+	// Check if directory exists
+	if _, err := os.Stat(packageDir); err != nil {
+		return "", fmt.Errorf("package directory %s does not exist: %w", packageDir, err)
+	}
+
+	return packageDir, nil
+}
+
+// resolveTypeInPackageDir resolves a type by parsing Go files in the package directory
+func resolveTypeInPackageDir(packageDir, typeName string) (string, error) {
 	entries, err := os.ReadDir(packageDir)
 	if err != nil {
-		// If we can't read the directory, this is likely an external package
-		// Return an error that indicates it's not resolvable (this is expected for external deps)
-		return "", fmt.Errorf("cannot read package directory %s (likely external package): %w", packageDir, err)
+		return "", fmt.Errorf("cannot read package directory %s: %w", packageDir, err)
 	}
 
 	// Look for type definitions in any Go file in the package
@@ -648,7 +715,42 @@ func resolveCrossPackageType(pkgType string, file *ast.File, filename string) (s
 		}
 	}
 
-	return "", fmt.Errorf("type %s not found in package %s", typeName, packageName)
+	return "", fmt.Errorf("type %s not found in package %s", typeName, packageDir)
+}
+
+// resolveExternalPackageType uses go/types to resolve types from external modules
+func resolveExternalPackageType(importPath, typeName string) (string, error) {
+	// Use go/types to resolve the external package type
+	cfg := &packages.Config{
+		Mode: packages.NeedTypes | packages.NeedTypesInfo,
+	}
+
+	pkgs, err := packages.Load(cfg, importPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to load package %s: %w", importPath, err)
+	}
+
+	if len(pkgs) == 0 {
+		return "", fmt.Errorf("no packages found for %s", importPath)
+	}
+
+	pkg := pkgs[0]
+	if len(pkg.Errors) > 0 {
+		return "", fmt.Errorf("package %s has errors: %v", importPath, pkg.Errors)
+	}
+
+	// Look for the type in the package scope
+	obj := pkg.Types.Scope().Lookup(typeName)
+	if obj == nil {
+		return "", fmt.Errorf("type %s not found in package %s", typeName, importPath)
+	}
+
+	// Get the underlying type
+	if typeName := obj.Type().Underlying().String(); typeName != "" {
+		return typeName, nil
+	}
+
+	return "", fmt.Errorf("could not determine underlying type for %s.%s", importPath, typeName)
 }
 
 // shouldWarnForCrossPackageType checks if a cross-package type reference should generate a warning

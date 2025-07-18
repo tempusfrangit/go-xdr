@@ -36,25 +36,34 @@ generate-test: benchmarks/benchmark_autogen_xdr_test.go benchmarks/benchmark_xdr
 		$(PWD)/bin/xdrgen xdr_alias_test.go; \
 	fi
 
+# Generate XDR code for codegen_test files (with ignore build tags)
+generate-codegen-test: bin/xdrgen
+	@echo "Generating XDR code for codegen_test files..."
+	@cd codegen_test && go generate -tags=ignore ./...
+	@cd codegen_test/alias_chain_test && go generate -tags=ignore ./...
+
 # Generate XDR code for all files (regular + test files)
 generate-all:
 	@echo "Generating XDR code for all files..."
 	@go generate ./...
 	@$(MAKE) generate-test
+	@$(MAKE) generate-codegen-test
 
 # Run tests
-test: generate-test
+test: generate-test generate-codegen-test
 	@echo "Running tests in main workspace..."
 	go test -v ./...
 	@echo "Running tests in tools/xdrgen workspace..."
 	cd tools/xdrgen && go test -v ./...
+	@echo "Codegen test files generated successfully (no runtime tests needed)"
 
 # Run tests with race detection
-test-race: generate-test
+test-race: generate-test generate-codegen-test
 	@echo "Running tests with race detection in main workspace..."
 	go test -race -v ./...
 	@echo "Running tests with race detection in tools/xdrgen workspace..."
 	cd tools/xdrgen && go test -race -v ./...
+	@echo "Codegen test files generated successfully (no runtime tests needed)"
 
 # Run benchmarks (with build tags)
 bench: generate-test

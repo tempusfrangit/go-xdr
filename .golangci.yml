@@ -86,3 +86,8 @@ linters:
       - builtin$
       - examples$
       - tools$
+      - codegen_test$          # Skip codegen test files
+      - synthetic_test$        # Skip synthetic test files
+    files:
+      - ".*_xdr.*\\.go$"       # Skip generated XDR files
+      - ".*_xdr\\.go$"         # Skip generated XDR files

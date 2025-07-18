@@ -32,11 +32,20 @@ jobs:
     - name: Download dependencies
       run: go mod download
     
-    - name: Run tests
-      run: go test -v ./...
+    - name: Build xdrgen tool
+      run: make build
+    
+    - name: Generate all XDR code (including codegen_test)
+      run: make generate-all
+    
+    - name: Run tests (including codegen tests)
+      run: make test
     
     - name: Run tests with race detection
-      run: go test -race -v ./...
+      run: make test-race
+    
+    - name: Test examples work correctly
+      run: make examples
     
     - name: Run benchmarks
       run: go test -bench=. -benchmem ./...
@@ -161,3 +170,140 @@ jobs:
           exit 1
         fi
         go build .
+
+  verify-codegen:
+    name: Verify Code Generation
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23'
+    
+    - name: Build xdrgen tool
+      run: make build
+    
+    - name: Clean generated files
+      run: |
+        find . -name "*_xdr*.go" -type f -delete
+        find . -name "*_xdr.go" -type f -delete
+    
+    - name: Regenerate all XDR code
+      run: make generate-all
+    
+    - name: Check for uncommitted changes
+      run: |
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "Code generation produced changes:"
+          git status --porcelain
+          git diff
+          exit 1
+        fi
+        echo "Code generation is up to date"
+
+  test-synthetic-modules:
+    name: Test Synthetic Cross-Package Resolution
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23'
+    
+    - name: Build xdrgen tool
+      run: make build
+    
+    - name: Test synthetic test module
+      run: |
+        cd synthetic_test
+        go mod tidy
+        ../bin/xdrgen consumer/types.go
+        go build ./...
+        echo "Cross-package type resolution working correctly"
+
+  test-go-workspace:
+    name: Test Go Workspace
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23'
+    
+    - name: Test workspace sync
+      run: go work sync
+    
+    - name: Verify workspace structure
+      run: |
+        echo "Workspace modules:"
+        go list -m
+        echo "Testing workspace compilation..."
+        go build ./...
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23'
+    
+    - name: Run Gosec Security Scanner
+      uses: securecodewarrior/github-action-gosec@master
+      with:
+        args: './...'
+
+  dependency-check:
+    name: Dependency Check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23'
+    
+    - name: Check for vulnerabilities
+      run: |
+        go install golang.org/x/vuln/cmd/govulncheck@latest
+        govulncheck ./...
+        cd tools/xdrgen && govulncheck ./...
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23'
+    
+    - name: Build xdrgen tool
+      run: make build
+    
+    - name: Generate all XDR code
+      run: make generate-all
+    
+    - name: Run tests with coverage
+      run: |
+        go test -race -coverprofile=coverage.out -covermode=atomic ./...
+        cd tools/xdrgen && go test -race -coverprofile=coverage-tools.out -covermode=atomic ./...
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        files: ./coverage.out,./tools/xdrgen/coverage-tools.out
+        fail_ci_if_error: false
+        token: ${{ secrets.CODECOV_TOKEN }}

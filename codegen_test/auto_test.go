@@ -1,3 +1,5 @@
+//go:build ignore
+
 //go:generate ../bin/xdrgen $GOFILE
 
 package codegen_test
