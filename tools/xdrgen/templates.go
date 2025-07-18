@@ -552,7 +552,6 @@ func (cg *CodeGenerator) generateBasicEncodeCode(field FieldInfo) (string, error
 // generateVariableArrayEncodeCode generates encode code for []Type fields
 func (cg *CodeGenerator) generateVariableArrayEncodeCode(field FieldInfo) (string, error) {
 	elementType := strings.TrimPrefix(field.Type, "[]")
-	elementIsStruct := cg.resolveAliasToStruct(elementType)
 
 	// For arrays, we need to resolve the element type to determine the encoding method
 	// Extract resolved element type from the field's ResolvedType
@@ -560,6 +559,9 @@ func (cg *CodeGenerator) generateVariableArrayEncodeCode(field FieldInfo) (strin
 	if strings.HasPrefix(field.ResolvedType, "[]") {
 		resolvedElementType = strings.TrimPrefix(field.ResolvedType, "[]")
 	}
+
+	// Use resolvedElementType to determine if element is a struct
+	elementIsStruct := cg.resolveAliasToStruct(resolvedElementType)
 
 	data := FieldData{
 		FieldName:           field.Name,
@@ -699,7 +701,6 @@ func (cg *CodeGenerator) generateBasicDecodeCode(field FieldInfo) (string, error
 // generateVariableArrayDecodeCode generates decode code for []Type fields
 func (cg *CodeGenerator) generateVariableArrayDecodeCode(field FieldInfo) (string, error) {
 	elementType := strings.TrimPrefix(field.Type, "[]")
-	elementIsStruct := cg.resolveAliasToStruct(elementType)
 
 	// For arrays, we need to resolve the element type to determine the decoding method
 	// Extract resolved element type from the field's ResolvedType
@@ -707,6 +708,9 @@ func (cg *CodeGenerator) generateVariableArrayDecodeCode(field FieldInfo) (strin
 	if strings.HasPrefix(field.ResolvedType, "[]") {
 		resolvedElementType = strings.TrimPrefix(field.ResolvedType, "[]")
 	}
+
+	// Use resolvedElementType to determine if element is a struct
+	elementIsStruct := cg.resolveAliasToStruct(resolvedElementType)
 
 	data := FieldData{
 		FieldName:           field.Name,

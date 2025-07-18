@@ -31,6 +31,8 @@ func (m MyString) Decode() bool {
 
 type AnotherString string
 
+type MyID uint32
+
 type MyStruct struct {
 	Field string
 }
