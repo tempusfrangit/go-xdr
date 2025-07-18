@@ -3,17 +3,29 @@
 .PHONY: build test clean install xdrgen generate-test generate-all
 
 # Build the xdrgen binary
-build: xdrgen
+build: bin/xdrgen
 
-xdrgen: bin
+# Backwards compatibility alias
+xdrgen: bin/xdrgen
+
+bin/xdrgen: bin tools/xdrgen/*.go
 	cd tools/xdrgen && go build -o ../../bin/xdrgen .
 
 # Install xdrgen to GOPATH/bin
 install:
 	cd tools/xdrgen && go install .
 
+# Generate XDR code for specific benchmark files (only when needed)
+benchmarks/benchmark_autogen_xdr_test.go: benchmarks/benchmark_autogen_test.go bin/xdrgen
+	@echo "Generating for benchmarks/benchmark_autogen_test.go..."
+	$(PWD)/bin/xdrgen benchmarks/benchmark_autogen_test.go
+
+benchmarks/benchmark_xdr_test.go: benchmarks/benchmark_test.go bin/xdrgen
+	@echo "Generating for benchmarks/benchmark_test.go..."
+	$(PWD)/bin/xdrgen benchmarks/benchmark_test.go
+
 # Generate XDR code for test files
-generate-test:
+generate-test: benchmarks/benchmark_autogen_xdr_test.go benchmarks/benchmark_xdr_test.go
 	@echo "Generating XDR code for test files..."
 	@if [ -f codegen_test.go ]; then \
 		echo "Generating for codegen_test.go..."; \
@@ -22,10 +34,6 @@ generate-test:
 	@if [ -f xdr_alias_test.go ]; then \
 		echo "Generating for xdr_alias_test.go..."; \
 		$(PWD)/bin/xdrgen xdr_alias_test.go; \
-	fi
-	@if [ -f benchmarks/benchmark_autogen_test.go ]; then \
-		echo "Generating for benchmarks/benchmark_autogen_test.go..."; \
-		$(PWD)/bin/xdrgen benchmarks/benchmark_autogen_test.go; \
 	fi
 
 # Generate XDR code for all files (regular + test files)

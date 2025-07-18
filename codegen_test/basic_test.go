@@ -1,7 +1,6 @@
 package codegen_test
 
 import (
-	"bytes"
 	"fmt"
 	"testing"
 
@@ -132,9 +131,7 @@ func TestFixedSizeArrayAlias(t *testing.T) {
 	buf := make([]byte, 1024)
 	enc := xdr.NewEncoder(buf)
 	err := user.Encode(enc)
-	if err != nil {
-		t.Fatalf("Encode failed: %v", err)
-	}
+	require.NoError(t, err, "Encode failed")
 
 	data := enc.Bytes()
 
@@ -142,14 +139,10 @@ func TestFixedSizeArrayAlias(t *testing.T) {
 	dec := xdr.NewDecoder(data)
 	var decoded TestUser
 	err = decoded.Decode(dec)
-	if err != nil {
-		t.Fatalf("Decode failed: %v", err)
-	}
+	require.NoError(t, err, "Decode failed")
 
 	// Verify hash matches
-	if decoded.Hash != user.Hash {
-		t.Errorf("Hash mismatch: expected %v, got %v", user.Hash, decoded.Hash)
-	}
+	assert.Equal(t, user.Hash, decoded.Hash, "Hash mismatch")
 }
 
 func TestAliasEdgeCases(t *testing.T) {
@@ -169,43 +162,23 @@ func TestAliasEdgeCases(t *testing.T) {
 	buf := make([]byte, 1024)
 	enc := xdr.NewEncoder(buf)
 	err := user.Encode(enc)
-	if err != nil {
-		t.Fatalf("Encode failed: %v", err)
-	}
+	require.NoError(t, err, "Encode failed")
 
 	data := enc.Bytes()
 	dec := xdr.NewDecoder(data)
 	var decoded TestUser
 	err = decoded.Decode(dec)
-	if err != nil {
-		t.Fatalf("Decode failed: %v", err)
-	}
+	require.NoError(t, err, "Decode failed")
 
 	// Verify zero values are preserved
-	if decoded.ID != TestUserID("") {
-		t.Errorf("Empty string not preserved: got %v", decoded.ID)
-	}
-	if len(decoded.Session) != 0 {
-		t.Errorf("Empty slice not preserved: got %v", decoded.Session)
-	}
-	if decoded.Status != TestStatusCode(0) {
-		t.Errorf("Zero uint32 not preserved: got %v", decoded.Status)
-	}
-	if decoded.Flags != TestFlags(0) {
-		t.Errorf("Zero uint64 not preserved: got %v", decoded.Flags)
-	}
-	if decoded.Priority != TestPriority(0) {
-		t.Errorf("Zero int32 not preserved: got %v", decoded.Priority)
-	}
-	if decoded.Created != TestTimestamp(0) {
-		t.Errorf("Zero int64 not preserved: got %v", decoded.Created)
-	}
-	if decoded.Active != TestIsActive(false) {
-		t.Errorf("False bool not preserved: got %v", decoded.Active)
-	}
-	if decoded.Hash != (TestHash{}) {
-		t.Errorf("Zero fixed array not preserved: got %v", decoded.Hash)
-	}
+	assert.Equal(t, TestUserID(""), decoded.ID, "Empty string not preserved")
+	assert.Empty(t, decoded.Session, "Empty slice not preserved")
+	assert.Equal(t, TestStatusCode(0), decoded.Status, "Zero uint32 not preserved")
+	assert.Equal(t, TestFlags(0), decoded.Flags, "Zero uint64 not preserved")
+	assert.Equal(t, TestPriority(0), decoded.Priority, "Zero int32 not preserved")
+	assert.Equal(t, TestTimestamp(0), decoded.Created, "Zero int64 not preserved")
+	assert.Equal(t, TestIsActive(false), decoded.Active, "False bool not preserved")
+	assert.Equal(t, TestHash{}, decoded.Hash, "Zero fixed array not preserved")
 }
 
 func TestFixedArrayZeroAllocationPath(t *testing.T) {
@@ -218,9 +191,7 @@ func TestFixedArrayZeroAllocationPath(t *testing.T) {
 	buf := make([]byte, 1024)
 	enc := xdr.NewEncoder(buf)
 	err := enc.EncodeFixedBytes(user.Hash[:])
-	if err != nil {
-		t.Fatalf("EncodeFixedBytes failed: %v", err)
-	}
+	require.NoError(t, err, "EncodeFixedBytes failed")
 
 	encoded := enc.Bytes()
 
@@ -228,16 +199,12 @@ func TestFixedArrayZeroAllocationPath(t *testing.T) {
 	dec1 := xdr.NewDecoder(encoded)
 	var result1 TestHash
 	err = dec1.DecodeFixedBytesInto(result1[:])
-	if err != nil {
-		t.Fatalf("DecodeFixedBytesInto failed: %v", err)
-	}
+	require.NoError(t, err, "DecodeFixedBytesInto failed")
 
 	// Test 2: Decode using DecodeFixedBytes (allocating fallback path)
 	dec2 := xdr.NewDecoder(encoded)
 	bytes2, err := dec2.DecodeFixedBytes(16)
-	if err != nil {
-		t.Fatalf("DecodeFixedBytes failed: %v", err)
-	}
+	require.NoError(t, err, "DecodeFixedBytes failed")
 	var result2 TestHash
 	copy(result2[:], bytes2)
 
@@ -257,31 +224,19 @@ func TestFixedArrayZeroAllocationPath(t *testing.T) {
 	buf = make([]byte, 1024)
 	enc = xdr.NewEncoder(buf)
 	err = fullUser.Encode(enc)
-	if err != nil {
-		t.Fatalf("Full encode failed: %v", err)
-	}
+	require.NoError(t, err, "Full encode failed")
 
 	fullEncoded := enc.Bytes()
 	dec3 := xdr.NewDecoder(fullEncoded)
 	var decoded TestUser
 	err = decoded.Decode(dec3)
-	if err != nil {
-		t.Fatalf("Generated decode failed: %v", err)
-	}
+	require.NoError(t, err, "Generated decode failed")
 
 	// All three results should be identical
-	if result1 != user.Hash {
-		t.Errorf("DecodeFixedBytesInto: expected %v, got %v", user.Hash, result1)
-	}
-	if result2 != user.Hash {
-		t.Errorf("DecodeFixedBytes: expected %v, got %v", user.Hash, result2)
-	}
-	if decoded.Hash != user.Hash {
-		t.Errorf("Generated decode: expected %v, got %v", user.Hash, decoded.Hash)
-	}
-	if result1 != result2 {
-		t.Errorf("Methods produce different results: DecodeFixedBytesInto=%v, DecodeFixedBytes=%v", result1, result2)
-	}
+	assert.Equal(t, user.Hash, result1, "DecodeFixedBytesInto: expected %v, got %v")
+	assert.Equal(t, user.Hash, result2, "DecodeFixedBytes: expected %v, got %v")
+	assert.Equal(t, user.Hash, decoded.Hash, "Generated decode: expected %v, got %v")
+	assert.Equal(t, result1, result2, "Methods produce different results: DecodeFixedBytesInto=%v, DecodeFixedBytes=%v")
 }
 
 func TestFixedArrayVsSliceHandling(t *testing.T) {
@@ -295,9 +250,7 @@ func TestFixedArrayVsSliceHandling(t *testing.T) {
 	buf := make([]byte, 1024)
 	enc := xdr.NewEncoder(buf)
 	err := user.Encode(enc)
-	if err != nil {
-		t.Fatalf("Encode failed: %v", err)
-	}
+	require.NoError(t, err, "Encode failed")
 
 	data := enc.Bytes()
 
@@ -305,19 +258,13 @@ func TestFixedArrayVsSliceHandling(t *testing.T) {
 	dec := xdr.NewDecoder(data)
 	var decoded TestUser
 	err = decoded.Decode(dec)
-	if err != nil {
-		t.Fatalf("Decode failed: %v", err)
-	}
+	require.NoError(t, err, "Decode failed")
 
 	// Verify Session ([]byte) - should be dynamically allocated
-	if !bytes.Equal([]byte(decoded.Session), []byte(user.Session)) {
-		t.Errorf("Session mismatch: expected %v, got %v", user.Session, decoded.Session)
-	}
+	assert.Equal(t, user.Session, decoded.Session, "Session mismatch")
 
 	// Verify Hash ([16]byte) - should be zero-allocation
-	if decoded.Hash != user.Hash {
-		t.Errorf("Hash mismatch: expected %v, got %v", user.Hash, decoded.Hash)
-	}
+	assert.Equal(t, user.Hash, decoded.Hash, "Hash mismatch")
 
 	// Test that we can modify the slice without affecting the source
 	originalSession := make([]byte, len(decoded.Session))
@@ -328,14 +275,10 @@ func TestFixedArrayVsSliceHandling(t *testing.T) {
 	dec = xdr.NewDecoder(data)
 	var decoded2 TestUser
 	err = decoded2.Decode(dec)
-	if err != nil {
-		t.Fatalf("Second decode failed: %v", err)
-	}
+	require.NoError(t, err, "Second decode failed")
 
 	// Second decode should have original value, not modified value
-	if !bytes.Equal([]byte(decoded2.Session), originalSession) {
-		t.Errorf("Session not properly isolated: expected %v, got %v", originalSession, decoded2.Session)
-	}
+	assert.Equal(t, originalSession, []byte(decoded2.Session), "Session not properly isolated")
 }
 
 // VoidOpCode represents operation codes for void-only union testing
@@ -364,9 +307,7 @@ func TestVoidOnlyUnion(t *testing.T) {
 	buf := make([]byte, 1024)
 	enc := xdr.NewEncoder(buf)
 	err := original.Encode(enc)
-	if err != nil {
-		t.Fatalf("Encode failed: %v", err)
-	}
+	require.NoError(t, err, "Encode failed")
 
 	data := enc.Bytes()
 
@@ -374,19 +315,13 @@ func TestVoidOnlyUnion(t *testing.T) {
 	dec := xdr.NewDecoder(data)
 	var decoded VoidOperation
 	err = decoded.Decode(dec)
-	if err != nil {
-		t.Fatalf("Decode failed: %v", err)
-	}
+	require.NoError(t, err, "Decode failed")
 
 	// Verify that the discriminant is preserved
-	if decoded.OpCode != original.OpCode {
-		t.Errorf("OpCode mismatch: expected %v, got %v", original.OpCode, decoded.OpCode)
-	}
+	assert.Equal(t, original.OpCode, decoded.OpCode, "OpCode mismatch")
 
 	// For void-only unions, the Data field should remain empty
-	if len(decoded.Data) != 0 {
-		t.Errorf("Data should be empty for void-only union, got %v", decoded.Data)
-	}
+	assert.Empty(t, decoded.Data, "Data should be empty for void-only union")
 }
 
 func TestVoidUnionAllConstants(t *testing.T) {
@@ -401,23 +336,14 @@ func TestVoidUnionAllConstants(t *testing.T) {
 			}
 
 			data, err := xdr.Marshal(original)
-			if err != nil {
-				t.Fatalf("Marshal failed for %v: %v", opCode, err)
-			}
+			require.NoError(t, err, "Marshal failed for %v", opCode)
 
 			var decoded VoidOperation
 			err = xdr.Unmarshal(data, &decoded)
-			if err != nil {
-				t.Fatalf("Unmarshal failed for %v: %v", opCode, err)
-			}
+			require.NoError(t, err, "Unmarshal failed for %v", opCode)
 
-			if decoded.OpCode != original.OpCode {
-				t.Errorf("OpCode mismatch for %v: expected %v, got %v", opCode, original.OpCode, decoded.OpCode)
-			}
-
-			if len(decoded.Data) != 0 {
-				t.Errorf("Data should be empty for void-only union %v, got %v", opCode, decoded.Data)
-			}
+			assert.Equal(t, original.OpCode, decoded.OpCode, "OpCode mismatch for %v", opCode)
+			assert.Empty(t, decoded.Data, "Data should be empty for void-only union %v", opCode)
 		})
 	}
 }
@@ -436,34 +362,20 @@ func TestCrossFileStructTypes(t *testing.T) {
 	}
 
 	data, err := xdr.Marshal(original)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
+	require.NoError(t, err, "Marshal failed")
 
 	var decoded TestCrossFileReference
 	err = xdr.Unmarshal(data, &decoded)
-	if err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
-	}
+	require.NoError(t, err, "Unmarshal failed")
 
 	// Verify the struct field
-	if decoded.CrossFileData.ID != original.CrossFileData.ID {
-		t.Errorf("CrossFileData.ID mismatch: expected %d, got %d", original.CrossFileData.ID, decoded.CrossFileData.ID)
-	}
-	if decoded.CrossFileData.Name != original.CrossFileData.Name {
-		t.Errorf("CrossFileData.Name mismatch: expected %s, got %s", original.CrossFileData.Name, decoded.CrossFileData.Name)
-	}
+	assert.Equal(t, original.CrossFileData.ID, decoded.CrossFileData.ID, "CrossFileData.ID mismatch")
+	assert.Equal(t, original.CrossFileData.Name, decoded.CrossFileData.Name, "CrossFileData.Name mismatch")
 
 	// Verify the array field
-	if len(decoded.Items) != len(original.Items) {
-		t.Errorf("Items length mismatch: expected %d, got %d", len(original.Items), len(decoded.Items))
-	}
+	assert.Len(t, decoded.Items, len(original.Items), "Items length mismatch")
 	for i, item := range original.Items {
-		if decoded.Items[i].ID != item.ID {
-			t.Errorf("Items[%d].ID mismatch: expected %d, got %d", i, item.ID, decoded.Items[i].ID)
-		}
-		if decoded.Items[i].Name != item.Name {
-			t.Errorf("Items[%d].Name mismatch: expected %s, got %s", i, item.Name, decoded.Items[i].Name)
-		}
+		assert.Equal(t, item.ID, decoded.Items[i].ID, "Items[%d].ID mismatch", i)
+		assert.Equal(t, item.Name, decoded.Items[i].Name, "Items[%d].Name mismatch", i)
 	}
 }

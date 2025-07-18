@@ -503,6 +503,7 @@ func discoverGoFiles(dir string) ([]string, error) {
 
 // parseFileWithPackageTypeDefs parses a Go file with package-level type definitions
 func parseFileWithPackageTypeDefs(filename string, packageTypeDefs map[string]ast.Node, packageConstants map[string]ConstantInfo) ([]TypeInfo, []ValidationError, map[string]ast.Node, error) {
+	debugf("parseFileWithPackageTypeDefs: called with filename=%s, packageTypeDefs=%d entries", filename, len(packageTypeDefs))
 	return parseFileInternal(filename, packageTypeDefs, packageConstants)
 }
 
@@ -611,41 +612,48 @@ func resolveCrossPackageType(pkgType string, file *ast.File) (string, error) {
 	}
 
 	// Try to parse the cross-package file to get type definitions
-	// For now, handle known test packages specifically
-	if importPath == "github.com/tempusfrangit/go-xdr/codegen_test/alt_pkg" {
-		// Parse the alt_pkg types.go file to get actual type definitions
-		// Get the directory of the current file being processed
-		currentDir := filepath.Dir(file.Name.Name)
-		altPkgPath := filepath.Join(currentDir, "alt_pkg", "types.go")
+	// Get the directory of the current file being processed
+	currentDir := filepath.Dir(file.Name.Name)
 
-		// Also try absolute path resolution if relative doesn't work
-		if _, err := os.Stat(altPkgPath); os.IsNotExist(err) {
-			// Try from current working directory
-			altPkgPath = filepath.Join("codegen_test", "alt_pkg", "types.go")
-		}
+	// Try to find the package directory relative to the current file
+	// Use the actual import path to determine the directory name
+	importPathParts := strings.Split(importPath, "/")
+	actualPackageName := importPathParts[len(importPathParts)-1]
+	packageDir := filepath.Join(currentDir, actualPackageName)
 
-		crossFile, err := parser.ParseFile(token.NewFileSet(), altPkgPath, nil, 0)
-		if err != nil {
-			return "", fmt.Errorf("failed to parse cross-package file %s: %w", altPkgPath, err)
-		}
+	// Try to find Go files in the package directory
+	entries, err := os.ReadDir(packageDir)
+	if err != nil {
+		// If we can't read the directory, this is likely an external package
+		// Return an error that indicates it's not resolvable (this is expected for external deps)
+		return "", fmt.Errorf("cannot read package directory %s (likely external package): %w", packageDir, err)
+	}
 
-		// Look for type definitions in the cross-package file
-		for _, decl := range crossFile.Decls {
-			if genDecl, ok := decl.(*ast.GenDecl); ok && genDecl.Tok == token.TYPE {
-				for _, spec := range genDecl.Specs {
-					if typeSpec, ok := spec.(*ast.TypeSpec); ok && typeSpec.Name.Name == typeName {
-						// Found the type definition, return its underlying type
-						return formatType(typeSpec.Type), nil
+	// Look for type definitions in any Go file in the package
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".go") {
+			filePath := filepath.Join(packageDir, entry.Name())
+
+			crossFile, err := parser.ParseFile(token.NewFileSet(), filePath, nil, 0)
+			if err != nil {
+				continue // Skip files that can't be parsed
+			}
+
+			// Look for type definitions in this file
+			for _, decl := range crossFile.Decls {
+				if genDecl, ok := decl.(*ast.GenDecl); ok && genDecl.Tok == token.TYPE {
+					for _, spec := range genDecl.Specs {
+						if typeSpec, ok := spec.(*ast.TypeSpec); ok && typeSpec.Name.Name == typeName {
+							// Found the type definition, return its underlying type
+							return formatType(typeSpec.Type), nil
+						}
 					}
 				}
 			}
 		}
-
-		return "", fmt.Errorf("type %s not found in package %s", typeName, packageName)
 	}
 
-	// For unknown packages, return error indicating we can't resolve
-	return "", fmt.Errorf("cannot resolve cross-package type from unknown package: %s", importPath)
+	return "", fmt.Errorf("type %s not found in package %s", typeName, packageName)
 }
 
 // shouldWarnForCrossPackageType checks if a cross-package type reference should generate a warning
@@ -986,6 +994,12 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 			}
 		}
 	}
+	// Debug: print typeAliases map
+	debugf("typeAliases map contents (%d entries):", len(typeAliases))
+	for k, v := range typeAliases {
+		debugf("  %s -> %s", k, v)
+	}
+	debugf("packageTypeDefs has %d entries", len(packageTypeDefs))
 
 	// Build a map of struct names that have go:generate directives
 	structsToGenerate := make(map[string]bool)

@@ -467,13 +467,34 @@ func (cg *CodeGenerator) generateBasicEncodeCode(field FieldInfo) (string, error
 		return cg.tm.ExecuteTemplate("field_encode_basic", data)
 	}
 
+	// Special case: [N]byte alias with xdr:"bytes" should use EncodeFixedBytes optimization
+	// Check if ResolvedType is a fixed byte array, or if Type is a direct fixed byte array
+	if field.XDRType == "bytes" {
+		isFixedByteArray := false
+		// Direct fixed byte array
+		if strings.HasPrefix(field.Type, "[") && strings.Contains(field.Type, "]byte") {
+			isFixedByteArray = true
+		}
+		// Alias to fixed byte array
+		if field.ResolvedType != "" && strings.HasPrefix(field.ResolvedType, "[") && strings.Contains(field.ResolvedType, "]byte") {
+			isFixedByteArray = true
+		}
+		if isFixedByteArray {
+			return cg.tm.ExecuteTemplate("fixed_bytes_encode", FieldData{
+				FieldName: field.Name,
+			})
+		}
+	}
+
 	// Auto-detect array types from Go type syntax
-	if strings.HasPrefix(field.Type, "[]") {
+	// Check both Type and ResolvedType to handle aliases like SessionID which is []byte
+	if strings.HasPrefix(field.Type, "[]") || strings.HasPrefix(field.ResolvedType, "[]") {
 		// Variable-length array: []Type with xdr:"elementXDRType"
 		return cg.generateVariableArrayEncodeCode(field)
 	}
 
-	if strings.HasPrefix(field.Type, "[") && strings.Contains(field.Type, "]") {
+	if (strings.HasPrefix(field.Type, "[") && strings.Contains(field.Type, "]")) ||
+		(strings.HasPrefix(field.ResolvedType, "[") && strings.Contains(field.ResolvedType, "]")) {
 		// Fixed-length array: [N]Type with xdr:"elementXDRType"
 		return cg.generateFixedArrayEncodeCode(field)
 	}
@@ -553,13 +574,19 @@ func (cg *CodeGenerator) generateVariableArrayEncodeCode(field FieldInfo) (strin
 
 // generateFixedArrayEncodeCode generates encode code for [N]Type fields
 func (cg *CodeGenerator) generateFixedArrayEncodeCode(field FieldInfo) (string, error) {
-	// Extract [N] and Type from [N]Type
-	if !strings.Contains(field.Type, "]") {
-		return "", fmt.Errorf("invalid fixed array type: %s", field.Type)
+	// Use ResolvedType if available, otherwise fall back to Type
+	arrayType := field.ResolvedType
+	if arrayType == "" {
+		arrayType = field.Type
 	}
 
-	closeBracket := strings.Index(field.Type, "]")
-	elementType := field.Type[closeBracket+1:] // Extract Type from [N]Type
+	// Extract [N] and Type from [N]Type
+	if !strings.Contains(arrayType, "]") {
+		return "", fmt.Errorf("invalid fixed array type: %s", arrayType)
+	}
+
+	closeBracket := strings.Index(arrayType, "]")
+	elementType := arrayType[closeBracket+1:] // Extract Type from [N]Type
 
 	// Special case: [N]byte with xdr:"bytes" -> use EncodeFixedBytes optimization
 	if elementType == "byte" && field.XDRType == "bytes" {
@@ -607,13 +634,24 @@ func (cg *CodeGenerator) generateBasicDecodeCode(field FieldInfo) (string, error
 		return cg.tm.ExecuteTemplate("field_decode_basic", data)
 	}
 
+	// Special case: [N]byte alias with xdr:"bytes" should use DecodeFixedBytesInto optimization
+	// Check if ResolvedType is a fixed byte array
+	if field.XDRType == "bytes" && field.ResolvedType != "" &&
+		strings.HasPrefix(field.ResolvedType, "[") && strings.Contains(field.ResolvedType, "]byte") {
+		return cg.tm.ExecuteTemplate("fixed_bytes_decode", FieldData{
+			FieldName: field.Name,
+		})
+	}
+
 	// Auto-detect array types from Go type syntax
-	if strings.HasPrefix(field.Type, "[]") {
+	// Check both Type and ResolvedType to handle aliases like SessionID which is []byte
+	if strings.HasPrefix(field.Type, "[]") || strings.HasPrefix(field.ResolvedType, "[]") {
 		// Variable-length array: []Type with xdr:"elementXDRType"
 		return cg.generateVariableArrayDecodeCode(field)
 	}
 
-	if strings.HasPrefix(field.Type, "[") && strings.Contains(field.Type, "]") {
+	if (strings.HasPrefix(field.Type, "[") && strings.Contains(field.Type, "]")) ||
+		(strings.HasPrefix(field.ResolvedType, "[") && strings.Contains(field.ResolvedType, "]")) {
 		// Fixed-length array: [N]Type with xdr:"elementXDRType"
 		return cg.generateFixedArrayDecodeCode(field)
 	}
@@ -683,13 +721,19 @@ func (cg *CodeGenerator) generateVariableArrayDecodeCode(field FieldInfo) (strin
 
 // generateFixedArrayDecodeCode generates decode code for [N]Type fields
 func (cg *CodeGenerator) generateFixedArrayDecodeCode(field FieldInfo) (string, error) {
-	// Extract [N] and Type from [N]Type
-	if !strings.Contains(field.Type, "]") {
-		return "", fmt.Errorf("invalid fixed array type: %s", field.Type)
+	// Use ResolvedType if available, otherwise fall back to Type
+	arrayType := field.ResolvedType
+	if arrayType == "" {
+		arrayType = field.Type
 	}
 
-	closeBracket := strings.Index(field.Type, "]")
-	elementType := field.Type[closeBracket+1:] // Extract Type from [N]Type
+	// Extract [N] and Type from [N]Type
+	if !strings.Contains(arrayType, "]") {
+		return "", fmt.Errorf("invalid fixed array type: %s", arrayType)
+	}
+
+	closeBracket := strings.Index(arrayType, "]")
+	elementType := arrayType[closeBracket+1:] // Extract Type from [N]Type
 
 	// Special case: [N]byte with xdr:"bytes" -> use DecodeFixedBytesInto optimization
 	if elementType == "byte" && field.XDRType == "bytes" {
