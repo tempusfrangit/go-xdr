@@ -566,6 +566,70 @@ func resolveAliasTypeWithFile(goType string, typeAliases map[string]string, file
 	return current
 }
 
+// getPackageNameFromImport determines the actual package name from an import path
+func getPackageNameFromImport(importPath, currentFilename string) string {
+	// Try to resolve the import path to find the actual package name
+	moduleRoot, moduleName, err := findModuleInfo(currentFilename)
+	if err != nil {
+		// Fallback to directory name if we can't find module info
+		pathParts := strings.Split(importPath, "/")
+		if len(pathParts) > 0 {
+			return pathParts[len(pathParts)-1]
+		}
+		return ""
+	}
+
+	var packageDir string
+	if !strings.HasPrefix(importPath, moduleName) {
+		// External module - fallback to directory name for now
+		pathParts := strings.Split(importPath, "/")
+		if len(pathParts) > 0 {
+			return pathParts[len(pathParts)-1]
+		}
+		return ""
+	}
+
+	// Internal module - use filesystem resolution
+	packageDir, err = findPackageDirectoryInModule(moduleRoot, importPath, moduleName)
+	if err != nil {
+		// Fallback to directory name
+		pathParts := strings.Split(importPath, "/")
+		if len(pathParts) > 0 {
+			return pathParts[len(pathParts)-1]
+		}
+		return ""
+	}
+
+	// Read the package declaration from a .go file in the package directory
+	entries, err := os.ReadDir(packageDir)
+	if err != nil {
+		// Fallback to directory name
+		pathParts := strings.Split(importPath, "/")
+		if len(pathParts) > 0 {
+			return pathParts[len(pathParts)-1]
+		}
+		return ""
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".go") && !strings.HasSuffix(entry.Name(), "_test.go") {
+			filePath := filepath.Join(packageDir, entry.Name())
+			fset := token.NewFileSet()
+			file, err := parser.ParseFile(fset, filePath, nil, parser.PackageClauseOnly)
+			if err == nil && file.Name != nil {
+				return file.Name.Name
+			}
+		}
+	}
+
+	// Final fallback to directory name
+	pathParts := strings.Split(importPath, "/")
+	if len(pathParts) > 0 {
+		return pathParts[len(pathParts)-1]
+	}
+	return ""
+}
+
 // resolveCrossPackageType attempts to resolve a cross-package type to its underlying type
 // Returns the resolved type and nil error if successful, or error if it can't be resolved
 func resolveCrossPackageType(pkgType string, file *ast.File, filename string) (string, error) {
@@ -595,9 +659,8 @@ func resolveCrossPackageType(pkgType string, file *ast.File, filename string) (s
 		} else {
 			// Regular import: import "package/path"
 			path := strings.Trim(imp.Path.Value, `"`)
-			// Extract package name from path (last component)
-			pathParts := strings.Split(path, "/")
-			if len(pathParts) > 0 && pathParts[len(pathParts)-1] == packageName {
+			// Check if this import's actual package name matches what we're looking for
+			if actualPackageName := getPackageNameFromImport(path, filename); actualPackageName == packageName {
 				importPath = path
 				break
 			}

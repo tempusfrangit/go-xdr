@@ -560,8 +560,8 @@ func (cg *CodeGenerator) generateVariableArrayEncodeCode(field FieldInfo) (strin
 		resolvedElementType = strings.TrimPrefix(field.ResolvedType, "[]")
 	}
 
-	// Use resolvedElementType to determine if element is a struct
-	elementIsStruct := cg.resolveAliasToStruct(resolvedElementType)
+	// Determine if element is a struct based on resolved type
+	elementIsStruct := !isPrimitiveType(resolvedElementType)
 
 	data := FieldData{
 		FieldName:           field.Name,
@@ -709,8 +709,8 @@ func (cg *CodeGenerator) generateVariableArrayDecodeCode(field FieldInfo) (strin
 		resolvedElementType = strings.TrimPrefix(field.ResolvedType, "[]")
 	}
 
-	// Use resolvedElementType to determine if element is a struct
-	elementIsStruct := cg.resolveAliasToStruct(resolvedElementType)
+	// Determine if element is a struct based on resolved type
+	elementIsStruct := !isPrimitiveType(resolvedElementType)
 
 	data := FieldData{
 		FieldName:           field.Name,
@@ -1010,6 +1010,15 @@ func (cg *CodeGenerator) getDecodeMethod(xdrType string) string {
 		}
 		return ""
 	}
+}
+
+// isPrimitiveType checks if a type is a Go primitive that should use primitive XDR encoding
+func isPrimitiveType(typeName string) bool {
+	primitives := map[string]bool{
+		"string": true, "[]byte": true, "uint32": true, "uint64": true,
+		"int32": true, "int64": true, "bool": true, "byte": true,
+	}
+	return primitives[typeName]
 }
 
 // Helper to resolve aliases recursively for struct detection
