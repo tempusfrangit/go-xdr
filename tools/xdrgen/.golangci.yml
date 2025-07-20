@@ -35,14 +35,5 @@ linters:
         - name: unreachable-code
         - name: var-declaration
         - name: var-naming
-  exclusions:
-    generated: lax
-    presets:
-      - comments
-      - common-false-positives
-      - legacy
-      - std-error-handling
-    rules:
-      - linters:
-          - revive
-        path: _test\.go$
+# Simple config compatible with golangci-lint v2.2.2
+# Test files are excluded at lint command level

@@ -299,19 +299,3 @@ func validateDiscriminatedUnions(types []TypeInfo, constants map[string]Constant
 }
 
 // Helper: detect loops in union payload chains
-func detectUnionLoop(start string, unionConfigs map[string]*UnionConfig, visited map[string]bool) bool {
-	if visited[start] {
-		return true
-	}
-	visited[start] = true
-	for _, payload := range unionConfigs[start].Cases {
-		if unionConfigs[payload] == nil {
-			continue // not a union container, skip
-		}
-		if detectUnionLoop(payload, unionConfigs, visited) {
-			return true
-		}
-	}
-	visited[start] = false
-	return false
-}

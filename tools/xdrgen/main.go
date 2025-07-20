@@ -202,6 +202,7 @@ func processFileWithPackageContext(inputFile, packageDir string) {
 	allTypeDefs := make(map[string]ast.Node)
 	allConstants := make(map[string]ConstantInfo)
 	allStructTypes := make(map[string]bool)
+	allTypeAliases := make(map[string]string)            // Collect type aliases from all files
 	payloadMappings := make(map[string][]PayloadMapping) // unionType -> []PayloadMapping
 
 	for _, file := range files {
@@ -212,7 +213,7 @@ func processFileWithPackageContext(inputFile, packageDir string) {
 			log.Fatal("Error parsing file:", err)
 		}
 
-		// Collect type definitions and constants
+		// Collect type definitions, constants, and type aliases
 		ast.Inspect(astFile, func(n ast.Node) bool {
 			if genDecl, ok := n.(*ast.GenDecl); ok {
 				// Store the full GenDecl which contains the directive comments
@@ -221,6 +222,13 @@ func processFileWithPackageContext(inputFile, packageDir string) {
 						allTypeDefs[typeSpec.Name.Name] = genDecl
 						if _, ok := typeSpec.Type.(*ast.StructType); ok {
 							allStructTypes[typeSpec.Name.Name] = true
+						}
+
+						// Collect type aliases
+						if typeSpec.Assign != token.NoPos || typeSpec.Assign == 0 {
+							if ident, ok := typeSpec.Type.(*ast.Ident); ok {
+								allTypeAliases[typeSpec.Name.Name] = ident.Name
+							}
 						}
 					}
 				}
@@ -317,12 +325,12 @@ func processFileWithPackageContext(inputFile, packageDir string) {
 
 	// Now process all files with XDR generation using complete package context
 	for _, file := range files {
-		processFileWithPackageUnionContext(file, allUnionConfigs, allTypeDefs, allConstants, allStructTypes)
+		processFileWithPackageUnionContext(file, allUnionConfigs, allTypeDefs, allConstants, allStructTypes, allTypeAliases)
 	}
 }
 
 // processFileWithPackageUnionContext processes a file with complete package-level union configuration context
-func processFileWithPackageUnionContext(inputFile string, allUnionConfigs map[string]*UnionConfig, allTypeDefs map[string]ast.Node, allConstants map[string]ConstantInfo, allStructTypes map[string]bool) {
+func processFileWithPackageUnionContext(inputFile string, allUnionConfigs map[string]*UnionConfig, allTypeDefs map[string]ast.Node, allConstants map[string]ConstantInfo, allStructTypes map[string]bool, allTypeAliases map[string]string) {
 	// Generate output file name, handling test files specially
 	var outputFile string
 	if strings.HasSuffix(inputFile, "_test.go") {
@@ -513,9 +521,10 @@ func processFileWithPackageUnionContext(inputFile string, allUnionConfigs map[st
 	}
 
 	debugf("Final structTypeNames list (%d types): %v", len(structTypeNames), structTypeNames)
+	debugf("Final allTypeAliases (%d entries): %v", len(allTypeAliases), allTypeAliases)
 
 	// Create code generator
-	codeGen, err := NewCodeGenerator(structTypeNames)
+	codeGen, err := NewCodeGenerator(structTypeNames, allTypeAliases)
 	if err != nil {
 		log.Fatal("Error creating code generator:", err)
 	}
@@ -580,7 +589,7 @@ func processFileWithPackageUnionContext(inputFile string, allUnionConfigs map[st
 	}
 
 	// Write to output file
-	if err := os.WriteFile(outputFile, []byte(output.String()), 0644); err != nil {
+	if err := os.WriteFile(outputFile, []byte(output.String()), 0600); err != nil {
 		log.Fatal("Error writing output file:", err)
 	}
 
@@ -597,7 +606,7 @@ func processFileWithPackageUnionContext(inputFile string, allUnionConfigs map[st
 // formatGeneratedCode formats the generated Go code using go/format
 func formatGeneratedCode(filename string) error {
 	// Read the generated file
-	src, err := os.ReadFile(filename)
+	src, err := os.ReadFile(filename) // #nosec G304 -- Code generator needs to read generated files for formatting
 	if err != nil {
 		return fmt.Errorf("failed to read generated file: %w", err)
 	}
@@ -609,7 +618,7 @@ func formatGeneratedCode(filename string) error {
 	}
 
 	// Write back the formatted code
-	if err := os.WriteFile(filename, formatted, 0644); err != nil {
+	if err := os.WriteFile(filename, formatted, 0600); err != nil {
 		return fmt.Errorf("failed to write formatted code: %w", err)
 	}
 

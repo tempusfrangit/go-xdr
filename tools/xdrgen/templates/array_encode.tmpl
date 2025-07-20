@@ -1,4 +1,5 @@
-if err := enc.EncodeUint32(uint32(len(v.{{.FieldName}}))); err != nil {
+// #nosec G115
+	if err := enc.EncodeUint32(uint32(len(v.{{.FieldName}}))); err != nil {
 		return fmt.Errorf("failed to encode {{.FieldName}} length: %w", err)
 	}
 for _, elem := range v.{{.FieldName}} {

@@ -1,3 +1,4 @@
+// Package xdr provides high-performance XDR (External Data Representation) encoding/decoding for Go.
 package xdr
 
 import (

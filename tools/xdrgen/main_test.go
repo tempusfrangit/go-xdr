@@ -404,7 +404,7 @@ func (p *PartialStruct) Encode(enc *xdr.Encoder) error { return nil }
 `
 
 	tmpFile := createTempFile(t, content)
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	// Parse the file to get the AST
 	fset := token.NewFileSet()
@@ -441,7 +441,7 @@ type TestStruct struct {
 `
 
 	tmpFile := createTempFile(t, content)
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	tags := extractBuildTags(tmpFile)
 	assert.NotEmpty(t, tags, "Should extract build tags")
@@ -465,7 +465,7 @@ func createTempFile(t *testing.T, content string) string {
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)
 	}
-	defer tmpFile.Close()
+	defer func() { _ = tmpFile.Close() }()
 
 	if _, err := tmpFile.WriteString(content); err != nil {
 		t.Fatalf("Failed to write temp file: %v", err)
@@ -682,7 +682,7 @@ type TextPayload struct {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpFile := createTempFile(t, tt.src)
-			defer os.Remove(tmpFile)
+			defer func() { _ = os.Remove(tmpFile) }()
 
 			// Use parseFile for validation - should succeed for valid cases
 			types, validationErrors, _, err := parseFile(tmpFile)
@@ -739,7 +739,7 @@ type TextPayload struct {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpFile := createTempFile(t, tt.src)
-			defer os.Remove(tmpFile)
+			defer func() { _ = os.Remove(tmpFile) }()
 
 			// Use parseFile for validation - should succeed for valid cases
 			types, validationErrors, _, err := parseFile(tmpFile)
@@ -784,7 +784,7 @@ type TextPayload struct {
 `
 
 	tmpFile := createTempFile(t, src)
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	// This should parse successfully with new directive syntax
 	types, validationErrors, _, err := parseFile(tmpFile)

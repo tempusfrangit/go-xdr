@@ -15,14 +15,6 @@ bin/xdrgen: bin tools/xdrgen/*.go
 install:
 	cd tools/xdrgen && go install .
 
-# Generate XDR code for specific benchmark files (only when needed)
-benchmarks/benchmark_autogen_xdr_test.go: benchmarks/benchmark_autogen_test.go bin/xdrgen
-	@echo "Generating for benchmarks/benchmark_autogen_test.go..."
-	$(PWD)/bin/xdrgen benchmarks/benchmark_autogen_test.go
-
-benchmarks/benchmark_xdr_test.go: benchmarks/benchmark_test.go bin/xdrgen
-	@echo "Generating for benchmarks/benchmark_test.go..."
-	$(PWD)/bin/xdrgen benchmarks/benchmark_test.go
 
 # Generate XDR code for test files
 generate-test: benchmarks/benchmark_autogen_xdr_test.go benchmarks/benchmark_xdr_test.go
@@ -42,12 +34,41 @@ generate-codegen-test: bin/xdrgen
 	@cd codegen_test && go generate -tags=ignore ./...
 	@cd codegen_test/alias_chain_test && go generate -tags=ignore ./...
 
-# Generate XDR code for all files (regular + test files)
-generate-all:
-	@echo "Generating XDR code for all files..."
-	@go generate ./...
-	@$(MAKE) generate-test
-	@$(MAKE) generate-codegen-test
+# Use Make's built-in dependency tracking with pattern rules
+%_xdr.go: %.go bin/xdrgen
+	@echo "Generating XDR for $<"
+	@case "$<" in \
+		synthetic_test/*) (cd synthetic_test && ../bin/xdrgen "$(patsubst synthetic_test/%,%,$<)") ;; \
+		*) ./bin/xdrgen "$<" ;; \
+	esac
+
+%_xdr_test.go: %_test.go bin/xdrgen  
+	@echo "Generating XDR for $<"
+	@./bin/xdrgen "$<"
+
+# Explicit rules for specific benchmark files
+benchmarks/benchmark_autogen_xdr_test.go: benchmarks/benchmark_autogen_test.go bin/xdrgen
+	@echo "Generating XDR for $<"
+	@./bin/xdrgen "$<"
+
+benchmarks/benchmark_xdr_test.go: benchmarks/benchmark_test.go bin/xdrgen
+	@echo "Generating XDR for $<"
+	@./bin/xdrgen "$<"
+
+# Generate all XDR files using Make's dependency system
+.PHONY: generate-all  
+generate-all: benchmarks/benchmark_autogen_xdr_test.go benchmarks/benchmark_xdr_test.go
+	@echo "Checking for other XDR files that need generation..."
+	@# Let Make handle the dependencies for pattern-matched files
+	@for src in $$(find . -name "*.go" -not -path "./tools/*" -not -name "*_xdr*.go" -not -name "main.go" -not -name "*_test.go"); do \
+		target="$${src%.go}_xdr.go"; \
+		$(MAKE) --no-print-directory "$$target" 2>/dev/null || true; \
+	done
+	@for src in $$(find ./codegen_test -name "*_test.go" -not -name "*_xdr*"); do \
+		target="$${src%.go}_xdr_test.go"; \
+		$(MAKE) --no-print-directory "$$target" 2>/dev/null || true; \
+	done
+	@echo "XDR generation complete"
 
 # Run tests
 test: generate-test generate-codegen-test
@@ -91,12 +112,16 @@ check-format:
 vet:
 	go vet ./...
 
-# Lint code with golangci-lint (matches CI)
+# Lint code with golangci-lint and gosec (matches CI)
 lint:
 	@echo "Running golangci-lint on main workspace..."
-	@go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run
+	@go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.2.2 run .
 	@echo "Running golangci-lint on xdrgen workspace..."
-	@cd tools/xdrgen && go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run
+	@cd tools/xdrgen && go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.2.2 run $$(find . -name "*.go" -not -name "*_test.go" | tr '\n' ' ')
+	@echo "Running gosec security scanner on main workspace..."
+	@go run github.com/securego/gosec/v2/cmd/gosec@latest ./...
+	@echo "Running gosec security scanner on xdrgen workspace..."
+	@cd tools/xdrgen && go run github.com/securego/gosec/v2/cmd/gosec@latest ./...
 
 # Run all checks
 check: check-format vet test-race

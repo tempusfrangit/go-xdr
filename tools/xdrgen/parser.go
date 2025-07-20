@@ -223,28 +223,6 @@ func parseXDRTag(tag string) string {
 	return xdrPart
 }
 
-// parseKeyTag parses key tags with optional default parameter
-// Supports: "key" and "key,default=nil" and "key,default=StructName"
-func parseKeyTag(xdrTag string) (isKey bool, defaultType string) {
-	if xdrTag == "key" {
-		return true, ""
-	}
-	if strings.HasPrefix(xdrTag, "key,") {
-		// Parse key with options like "key,default=nil" or "key,default=ErrorResult"
-		parts := strings.Split(xdrTag, ",")
-		for _, part := range parts[1:] {
-			if strings.HasPrefix(part, "default=") {
-				defaultType = strings.TrimPrefix(part, "default=")
-				// Validate default value
-				if defaultType != "nil" && defaultType == "" {
-					return false, "" // Invalid empty default
-				}
-			}
-		}
-		return true, defaultType
-	}
-	return false, ""
-}
 
 // parseUnionComment parses a union configuration comment
 // Format: //xdr:union=DiscriminantType,case=ConstantValue
@@ -401,7 +379,7 @@ func extractReceiverType(expr ast.Expr) string {
 
 // extractBuildTags extracts build tags from a Go source file
 func extractBuildTags(filename string) []string {
-	content, err := os.ReadFile(filename)
+	content, err := os.ReadFile(filename) // #nosec G304 -- Code generator needs to read Go source files
 	if err != nil {
 		return nil
 	}
@@ -480,7 +458,7 @@ func discoverGoFiles(dir string) ([]string, error) {
 		filePath := filepath.Join(dir, entry.Name())
 
 		// Check if file has //go:generate xdrgen directive
-		content, err := os.ReadFile(filePath)
+		content, err := os.ReadFile(filePath) // #nosec G304 -- Code generator needs to read Go source files
 		if err != nil {
 			continue // Skip files we can't read
 		}
@@ -506,13 +484,10 @@ func discoverGoFiles(dir string) ([]string, error) {
 // parseFileWithPackageTypeDefs parses a Go file with package-level type definitions
 func parseFileWithPackageTypeDefs(filename string, packageTypeDefs map[string]ast.Node, packageConstants map[string]ConstantInfo) ([]TypeInfo, []ValidationError, map[string]ast.Node, error) {
 	debugf("parseFileWithPackageTypeDefs: called with filename=%s, packageTypeDefs=%d entries", filename, len(packageTypeDefs))
-	return parseFileInternal(filename, packageTypeDefs, packageConstants)
+	types, errors, typeDefs, _, err := parseFileInternal(filename, packageTypeDefs, packageConstants)
+	return types, errors, typeDefs, err
 }
 
-// parseFile parses a Go file and extracts structs that have go:generate xdrgen directives
-func parseFile(filename string) ([]TypeInfo, []ValidationError, map[string]ast.Node, error) {
-	return parseFileInternal(filename, nil, nil)
-}
 
 // resolveAliasTypeWithFile recursively resolves alias chains, including cross-package types when file is provided
 func resolveAliasTypeWithFile(goType string, typeAliases map[string]string, file *ast.File, filename string) string {
@@ -701,7 +676,7 @@ func findModuleInfo(filename string) (moduleRoot, moduleName string, err error) 
 		goModPath := filepath.Join(dir, "go.mod")
 		if _, err := os.Stat(goModPath); err == nil {
 			// Found go.mod, parse it to get module name
-			content, err := os.ReadFile(goModPath)
+			content, err := os.ReadFile(goModPath) // #nosec G304 -- Code generator needs to read go.mod files
 			if err != nil {
 				return "", "", fmt.Errorf("failed to read go.mod: %w", err)
 			}
@@ -882,9 +857,6 @@ func isMultiDepthAlias(goType string, typeAliases map[string]string) bool {
 }
 
 // autoDiscoverXDRType maps Go types to their natural XDR equivalents
-func autoDiscoverXDRType(goType string, typeAliases map[string]string) string {
-	return autoDiscoverXDRTypeWithFile(goType, typeAliases, nil, "")
-}
 
 // autoDiscoverXDRTypeWithFile maps Go types to their natural XDR equivalents with cross-package support
 func autoDiscoverXDRTypeWithFile(goType string, typeAliases map[string]string, file *ast.File, filename string) string {
@@ -1064,12 +1036,12 @@ func collectXDRDirectives(file *ast.File, structPos token.Pos) *XDRDirectives {
 }
 
 // parseFileInternal is the internal implementation that can optionally use package-level type definitions
-func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, packageConstants map[string]ConstantInfo) ([]TypeInfo, []ValidationError, map[string]ast.Node, error) {
+func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, packageConstants map[string]ConstantInfo) ([]TypeInfo, []ValidationError, map[string]ast.Node, map[string]string, error) {
 	fset := token.NewFileSet()
 
-	fileBytes, err := os.ReadFile(filename)
+	fileBytes, err := os.ReadFile(filename) // #nosec G304 -- Code generator needs to read Go source files
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	lines := strings.Split(string(fileBytes), "\n")
 	var misplacedUnionComments []ValidationError
@@ -1113,7 +1085,7 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 	// For now, we'll parse all files regardless of build tags to ensure we don't miss any
 	file, err := parser.ParseFile(fset, filename, nil, parser.ParseComments)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	// Build typeDefs map
@@ -1485,7 +1457,7 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 		}
 	}
 
-	return types, misplacedUnionComments, typeDefs, nil
+	return types, misplacedUnionComments, typeDefs, typeAliases, nil
 }
 
 // getUnionFieldNames extracts the key and payload field names from a union struct AST node

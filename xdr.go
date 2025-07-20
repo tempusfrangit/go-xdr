@@ -63,11 +63,13 @@ func (e *Encoder) EncodeUint64(v uint64) error {
 
 // EncodeInt32 encodes a 32-bit signed integer
 func (e *Encoder) EncodeInt32(v int32) error {
+	// #nosec G115
 	return e.EncodeUint32(uint32(v))
 }
 
 // EncodeInt64 encodes a 64-bit signed integer
 func (e *Encoder) EncodeInt64(v int64) error {
+	// #nosec G115
 	return e.EncodeUint64(uint64(v))
 }
 
@@ -81,6 +83,7 @@ func (e *Encoder) EncodeBool(v bool) error {
 
 // EncodeBytes encodes a variable-length byte array with length prefix
 func (e *Encoder) EncodeBytes(v []byte) error {
+	// #nosec G115
 	if err := e.EncodeUint32(uint32(len(v))); err != nil {
 		return err
 	}
@@ -175,12 +178,14 @@ func (d *Decoder) DecodeUint64() (uint64, error) {
 // DecodeInt32 decodes a 32-bit signed integer
 func (d *Decoder) DecodeInt32() (int32, error) {
 	v, err := d.DecodeUint32()
+	// #nosec G115
 	return int32(v), err
 }
 
 // DecodeInt64 decodes a 64-bit signed integer
 func (d *Decoder) DecodeInt64() (int64, error) {
 	v, err := d.DecodeUint64()
+	// #nosec G115
 	return int64(v), err
 }
 
@@ -273,6 +278,7 @@ func (w *Writer) WriteUint32(v uint32) error {
 
 // WriteBytes writes a variable-length byte array
 func (w *Writer) WriteBytes(v []byte) error {
+	// #nosec G115
 	if err := w.WriteUint32(uint32(len(v))); err != nil {
 		return err
 	}

@@ -101,6 +101,7 @@ func main() {
 	numbers := []uint32{100, 200, 300, 400, 500}
 
 	// Encode array manually (length + elements)
+	// #nosec G115
 	err = encoder.EncodeUint32(uint32(len(numbers)))
 	if err != nil {
 		log.Fatal(err)

@@ -398,19 +398,19 @@ func TestRoundTrip(t *testing.T) {
 	for _, value := range values {
 		switch v := value.(type) {
 		case uint32:
-			encoder.EncodeUint32(v)
+			_ = encoder.EncodeUint32(v)
 		case uint64:
-			encoder.EncodeUint64(v)
+			_ = encoder.EncodeUint64(v)
 		case int32:
-			encoder.EncodeInt32(v)
+			_ = encoder.EncodeInt32(v)
 		case int64:
-			encoder.EncodeInt64(v)
+			_ = encoder.EncodeInt64(v)
 		case bool:
-			encoder.EncodeBool(v)
+			_ = encoder.EncodeBool(v)
 		case string:
-			encoder.EncodeString(v)
+			_ = encoder.EncodeString(v)
 		case []byte:
-			encoder.EncodeBytes(v)
+			_ = encoder.EncodeBytes(v)
 		}
 	}
 
@@ -625,14 +625,14 @@ func BenchmarkEncoder(b *testing.B) {
 	b.Run("EncodeUint32", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			encoder.Reset(buf)
-			encoder.EncodeUint32(0x12345678)
+			_ = encoder.EncodeUint32(0x12345678)
 		}
 	})
 
 	b.Run("EncodeString", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			encoder.Reset(buf)
-			encoder.EncodeString("hello world")
+			_ = encoder.EncodeString("hello world")
 		}
 	})
 
@@ -640,7 +640,7 @@ func BenchmarkEncoder(b *testing.B) {
 		data := make([]byte, 100)
 		for i := 0; i < b.N; i++ {
 			encoder.Reset(buf)
-			encoder.EncodeBytes(data)
+			_ = encoder.EncodeBytes(data)
 		}
 	})
 }
@@ -649,29 +649,29 @@ func BenchmarkDecoder(b *testing.B) {
 	// Pre-encoded data
 	buf := make([]byte, 1024)
 	encoder := NewEncoder(buf)
-	encoder.EncodeUint32(0x12345678)
-	encoder.EncodeString("hello world")
-	encoder.EncodeBytes(make([]byte, 100))
+	_ = encoder.EncodeUint32(0x12345678)
+	_ = encoder.EncodeString("hello world")
+	_ = encoder.EncodeBytes(make([]byte, 100))
 	data := encoder.Bytes()
 
 	b.Run("DecodeUint32", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			decoder := NewDecoder(data)
-			decoder.DecodeUint32()
+			_, _ = decoder.DecodeUint32()
 		}
 	})
 
 	b.Run("DecodeString", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			decoder := NewDecoder(data[4:]) // Skip the uint32
-			decoder.DecodeString()
+			_, _ = decoder.DecodeString()
 		}
 	})
 
 	b.Run("DecodeBytes", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			decoder := NewDecoder(data[20:]) // Skip uint32 and string
-			decoder.DecodeBytes()
+			_, _ = decoder.DecodeBytes()
 		}
 	})
 }

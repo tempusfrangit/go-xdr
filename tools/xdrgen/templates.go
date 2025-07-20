@@ -70,12 +70,13 @@ type TemplateManager struct {
 type CodeGenerator struct {
 	tm           *TemplateManager
 	structTypes  map[string]bool
-	usedPackages map[string]bool // Track packages actually used in generated code
+	typeAliases  map[string]string // Maps type names to their underlying types
+	usedPackages map[string]bool   // Track packages actually used in generated code
 }
 
 // NewCodeGenerator creates a new code generator with initialized templates
-// Accepts a list of struct type names
-func NewCodeGenerator(structTypeNames []string) (*CodeGenerator, error) {
+// Accepts a list of struct type names and type aliases
+func NewCodeGenerator(structTypeNames []string, typeAliases map[string]string) (*CodeGenerator, error) {
 	tm, err := NewTemplateManager()
 	if err != nil {
 		return nil, err
@@ -84,7 +85,10 @@ func NewCodeGenerator(structTypeNames []string) (*CodeGenerator, error) {
 	for _, name := range structTypeNames {
 		structTypes[name] = true
 	}
-	return &CodeGenerator{tm: tm, structTypes: structTypes, usedPackages: make(map[string]bool)}, nil
+	if typeAliases == nil {
+		typeAliases = make(map[string]string)
+	}
+	return &CodeGenerator{tm: tm, structTypes: structTypes, typeAliases: typeAliases, usedPackages: make(map[string]bool)}, nil
 }
 
 // GetUsedPackages returns the list of packages actually used in generated code
@@ -554,14 +558,16 @@ func (cg *CodeGenerator) generateVariableArrayEncodeCode(field FieldInfo) (strin
 	elementType := strings.TrimPrefix(field.Type, "[]")
 
 	// For arrays, we need to resolve the element type to determine the encoding method
-	// Extract resolved element type from the field's ResolvedType
-	resolvedElementType := elementType // Default to original type
-	if strings.HasPrefix(field.ResolvedType, "[]") {
+	// First, try to resolve the original element type using package-level type aliases
+	resolvedElementType := cg.resolveTypeAlias(elementType)
+
+	// If that didn't resolve to a primitive, fall back to the ResolvedType from parser
+	if !isPrimitiveType(resolvedElementType) && strings.HasPrefix(field.ResolvedType, "[]") {
 		resolvedElementType = strings.TrimPrefix(field.ResolvedType, "[]")
 	}
 
 	// Determine if element is a struct based on resolved type
-	elementIsStruct := !isPrimitiveType(resolvedElementType)
+	elementIsStruct := !cg.isPrimitiveTypeWithAliases(resolvedElementType)
 
 	data := FieldData{
 		FieldName:           field.Name,
@@ -703,14 +709,16 @@ func (cg *CodeGenerator) generateVariableArrayDecodeCode(field FieldInfo) (strin
 	elementType := strings.TrimPrefix(field.Type, "[]")
 
 	// For arrays, we need to resolve the element type to determine the decoding method
-	// Extract resolved element type from the field's ResolvedType
-	resolvedElementType := elementType // Default to original type
-	if strings.HasPrefix(field.ResolvedType, "[]") {
+	// First, try to resolve the original element type using package-level type aliases
+	resolvedElementType := cg.resolveTypeAlias(elementType)
+
+	// If that didn't resolve to a primitive, fall back to the ResolvedType from parser
+	if !isPrimitiveType(resolvedElementType) && strings.HasPrefix(field.ResolvedType, "[]") {
 		resolvedElementType = strings.TrimPrefix(field.ResolvedType, "[]")
 	}
 
 	// Determine if element is a struct based on resolved type
-	elementIsStruct := !isPrimitiveType(resolvedElementType)
+	elementIsStruct := !cg.isPrimitiveTypeWithAliases(resolvedElementType)
 
 	data := FieldData{
 		FieldName:           field.Name,
@@ -944,32 +952,6 @@ func (cg *CodeGenerator) getEncodeMethod(xdrType string) string {
 }
 
 // goTypeForXDRType converts XDR type names to Go type names
-func goTypeForXDRType(xdrType string) string {
-	switch xdrType {
-	case "string":
-		return "string"
-	case "bytes":
-		return "[]byte"
-	case "uint32":
-		return "uint32"
-	case "uint64":
-		return "uint64"
-	case "int32":
-		return "int32"
-	case "int64":
-		return "int64"
-	case "bool":
-		return "bool"
-	default:
-		// Handle fixed-size byte arrays
-		if strings.HasPrefix(xdrType, "fixed:") {
-			size := strings.TrimPrefix(xdrType, "fixed:")
-			return "[" + size + "]byte"
-		}
-		// For unknown types (structs, cross-file types), just return the type name as-is
-		return xdrType
-	}
-}
 
 // getDecodeMethod returns the appropriate decoder method for an XDR type
 func (cg *CodeGenerator) getDecodeMethod(xdrType string) string {
@@ -1019,6 +1001,36 @@ func isPrimitiveType(typeName string) bool {
 		"int32": true, "int64": true, "bool": true, "byte": true,
 	}
 	return primitives[typeName]
+}
+
+// isPrimitiveTypeWithAliases checks if a type resolves to a primitive, following type aliases
+func (cg *CodeGenerator) isPrimitiveTypeWithAliases(typeName string) bool {
+	// Check direct primitive first
+	if isPrimitiveType(typeName) {
+		return true
+	}
+
+	// Follow type aliases to see if they resolve to primitives
+	resolved := cg.resolveTypeAlias(typeName)
+	return isPrimitiveType(resolved)
+}
+
+// resolveTypeAlias follows type aliases to their underlying type
+func (cg *CodeGenerator) resolveTypeAlias(typeName string) string {
+	seen := make(map[string]bool)
+	current := typeName
+
+	for !seen[current] {
+		seen[current] = true
+
+		alias, exists := cg.typeAliases[current]
+		if !exists {
+			break
+		}
+		current = alias
+	}
+
+	return current
 }
 
 // Helper to resolve aliases recursively for struct detection

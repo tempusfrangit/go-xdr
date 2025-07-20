@@ -88,6 +88,7 @@ func (m *MixedStruct) Encode(enc *xdr.Encoder) error {
 	}
 
 	// Manual field with custom encoding (reversed order)
+	// #nosec G115
 	if err := enc.EncodeUint32(uint32(len(m.ManualField))); err != nil {
 		return err
 	}
