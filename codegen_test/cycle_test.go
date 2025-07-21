@@ -19,11 +19,11 @@ type Node struct {
 	Children []*Node // Can create cycles
 }
 
-// FlexibleData contains any type that could implicitly create cycles
+// FlexibleData contains self-reference that creates cycles
 // +xdr:generate
 type FlexibleData struct {
 	ID   uint32
-	Data any // Implicitly cyclable
+	Next *FlexibleData // Self-reference - forces loop detection
 }
 
 // SimpleStruct has no potential for cycles (should get fast path)
@@ -34,7 +34,7 @@ type SimpleStruct struct {
 	Count int64
 }
 
-//go:generate ../../bin/xdrgen cycle_test.go
+//go:generate ../bin/xdrgen cycle_test.go
 
 func TestCycleDetection(t *testing.T) {
 	tests := []struct {
@@ -82,7 +82,7 @@ func TestCycleDetection(t *testing.T) {
 		{
 			name: "flexible_data_no_cycles",
 			setupData: func() interface{ Encode(enc *xdr.Encoder) error } {
-				return &FlexibleData{ID: 1, Data: "simple string"}
+				return &FlexibleData{ID: 1, Next: nil}
 			},
 			expectError: false,
 		},
@@ -90,7 +90,7 @@ func TestCycleDetection(t *testing.T) {
 			name: "flexible_data_with_cycle",
 			setupData: func() interface{ Encode(enc *xdr.Encoder) error } {
 				flex := &FlexibleData{ID: 1}
-				flex.Data = flex // Self-reference through any field
+				flex.Next = flex // Self-reference through pointer field
 				return flex
 			},
 			expectError:   true,
@@ -188,8 +188,8 @@ func BenchmarkEncodingWithLoopDetection(b *testing.B) {
 }
 
 func BenchmarkEncodingFlexibleData(b *testing.B) {
-	// FlexibleData should have loop detection (due to any field)
-	flex := &FlexibleData{ID: 1, Data: "benchmark string"}
+	// FlexibleData should have loop detection (due to self-reference)
+	flex := &FlexibleData{ID: 1, Next: nil}
 	enc := xdr.NewEncoder(make([]byte, 1024))
 
 	b.ResetTimer()

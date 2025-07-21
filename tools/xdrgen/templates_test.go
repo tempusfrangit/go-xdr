@@ -51,7 +51,7 @@ func TestGenerateFileHeader(t *testing.T) {
 	cg, err := NewCodeGenerator([]string{}, map[string]string{})
 	require.NoError(t, err, "NewCodeGenerator failed")
 
-	result, err := cg.GenerateFileHeader("test.go", "testpkg", []string{"external/pkg"}, []string{"//go:build test"})
+	result, err := cg.GenerateFileHeader("test.go", "testpkg", []string{"external/pkg"}, []string{"//go:build test"}, 3)
 	require.NoError(t, err, "GenerateFileHeader failed")
 
 	assert.Contains(t, result, "test.go", "Result should contain source file name")
@@ -64,7 +64,7 @@ func TestGenerateFileHeaderNoImports(t *testing.T) {
 	cg, err := NewCodeGenerator([]string{}, map[string]string{})
 	require.NoError(t, err, "NewCodeGenerator failed")
 
-	result, err := cg.GenerateFileHeader("test.go", "testpkg", nil, nil)
+	result, err := cg.GenerateFileHeader("test.go", "testpkg", nil, nil, 0)
 	require.NoError(t, err, "GenerateFileHeader failed")
 
 	assert.Contains(t, result, "testpkg", "Result should contain package name")
@@ -74,7 +74,7 @@ func TestGenerateFileHeaderWithBuildTags(t *testing.T) {
 	cg, err := NewCodeGenerator([]string{}, map[string]string{})
 	require.NoError(t, err, "NewCodeGenerator failed")
 
-	result, err := cg.GenerateFileHeader("test.go", "testpkg", nil, []string{"//go:build linux", "//go:build amd64"})
+	result, err := cg.GenerateFileHeader("test.go", "testpkg", nil, []string{"//go:build linux", "//go:build amd64"}, 1)
 	require.NoError(t, err, "GenerateFileHeader failed")
 
 	assert.Contains(t, result, "//go:build linux", "Result should contain first build tag")

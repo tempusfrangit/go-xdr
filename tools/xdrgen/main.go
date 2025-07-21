@@ -547,7 +547,7 @@ func processFileWithPackageUnionContext(inputFile string, allUnionConfigs map[st
 	var output strings.Builder
 
 	// Generate file header
-	header, err := codeGen.GenerateFileHeader(inputFile, packageName, externalImports, buildTags)
+	header, err := codeGen.GenerateFileHeader(inputFile, packageName, externalImports, buildTags, len(types))
 	if err != nil {
 		log.Fatal("Error generating file header:", err)
 	}

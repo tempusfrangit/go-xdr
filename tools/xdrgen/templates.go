@@ -6,7 +6,6 @@ import (
 	"go/ast"
 	"strings"
 	"text/template"
-	"time"
 )
 
 //go:embed templates/*.tmpl
@@ -15,11 +14,11 @@ var templateFS embed.FS
 // FileData represents data for file header templates
 type FileData struct {
 	SourceFile      string
-	Timestamp       string
 	PackageName     string
 	ExternalImports []string
 	Types           []TypeData
 	BuildTags       []string
+	TypeCount       int
 }
 
 // TypeData represents data for type templates
@@ -161,10 +160,10 @@ func NewTemplateManager() (*TemplateManager, error) {
 		case "file_header":
 			dummy = FileData{
 				SourceFile:      "test.go",
-				Timestamp:       "2024-01-01T00:00:00Z",
 				PackageName:     "test",
 				ExternalImports: []string{},
 				BuildTags:       []string{},
+				TypeCount:       5,
 			}
 		case "encode_method", "decode_method":
 			dummy = TypeData{
@@ -304,13 +303,13 @@ func (tm *TemplateManager) ExecuteTemplate(name string, data any) (string, error
 // Template-based code generation functions
 
 // GenerateFileHeader generates the file header using templates
-func (cg *CodeGenerator) GenerateFileHeader(sourceFile, packageName string, externalImports []string, buildTags []string) (string, error) {
+func (cg *CodeGenerator) GenerateFileHeader(sourceFile, packageName string, externalImports []string, buildTags []string, typeCount int) (string, error) {
 	data := FileData{
 		SourceFile:      sourceFile,
-		Timestamp:       time.Now().Format(time.RFC3339),
 		PackageName:     packageName,
 		ExternalImports: externalImports,
 		BuildTags:       buildTags,
+		TypeCount:       typeCount,
 	}
 	return cg.tm.ExecuteTemplate("file_header", data)
 }
