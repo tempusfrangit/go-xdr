@@ -242,7 +242,7 @@ func parseXDRTag(tag string) string {
 // Format: //xdr:union=DiscriminantType,case=ConstantValue
 func parseUnionComment(comment string) (*UnionConfig, error) {
 	if !strings.HasPrefix(comment, "//xdr:union=") {
-		return nil, nil
+		return nil, nil //nolint:nilnil // This is intentional - nil result with nil error means "not a union comment"
 	}
 
 	// Extract the union specification
@@ -674,10 +674,9 @@ func resolveCrossPackageType(pkgType string, file *ast.File, filename string) (s
 			return "", fmt.Errorf("failed to find internal package directory for %s: %w", importPath, err)
 		}
 		return resolveTypeInPackageDir(packageDir, typeName)
-	} else {
-		// External module - use go/types resolution
-		return resolveExternalPackageType(importPath, typeName)
 	}
+	// External module - use go/types resolution
+	return resolveExternalPackageType(importPath, typeName)
 }
 
 // findModuleInfo finds the go.mod file and returns module root directory and module name

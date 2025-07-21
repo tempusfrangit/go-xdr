@@ -39,18 +39,19 @@ import (
 var silent bool
 var debug = false
 var disableLoopDetection = false
+var originalWorkingDir string
 
 // logf logs a message unless in silent mode
-func logf(format string, args ...any) {
+func logf(msg string, args ...any) {
 	if !silent {
-		log.Printf(format, args...)
+		log.Printf(msg, args...)
 	}
 }
 
 // debugf logs a message only in debug mode
-func debugf(format string, args ...any) {
+func debugf(msg string, args ...any) {
 	if debug {
-		log.Printf("DEBUG: "+format, args...)
+		log.Printf("DEBUG: "+msg, args...)
 	}
 }
 
@@ -148,8 +149,15 @@ func main() {
 		debug = true
 	}
 
+	// Store current working directory for relative path computation in templates
+	var err error
+	originalWorkingDir, err = os.Getwd()
+	if err != nil {
+		log.Fatal("Error getting working directory:", err)
+	}
+
 	// Convert to absolute path
-	inputPath, err := filepath.Abs(inputPath)
+	inputPath, err = filepath.Abs(inputPath)
 	if err != nil {
 		log.Fatal("Error getting absolute path:", err)
 	}
@@ -320,7 +328,7 @@ func processFileWithPackageContext(inputFile, packageDir string) {
 		for k := range allTypeDefs {
 			keys = append(keys, k)
 		}
-		fmt.Printf("processFileWithPackageContext: allTypeDefs keys: %v\n", keys)
+		debugf("processFileWithPackageContext: allTypeDefs keys: %v", keys)
 	}
 
 	// Now process all files with XDR generation using complete package context
@@ -546,8 +554,12 @@ func processFileWithPackageUnionContext(inputFile string, allUnionConfigs map[st
 	// Generate output
 	var output strings.Builder
 
-	// Generate file header
-	header, err := codeGen.GenerateFileHeader(inputFile, packageName, externalImports, buildTags, len(types))
+	// Generate file header with relative path for determinism
+	relativeInputFile, err := filepath.Rel(originalWorkingDir, inputFile)
+	if err != nil {
+		relativeInputFile = inputFile // fallback to absolute path if relative fails
+	}
+	header, err := codeGen.GenerateFileHeader(relativeInputFile, packageName, externalImports, buildTags, len(types))
 	if err != nil {
 		log.Fatal("Error generating file header:", err)
 	}

@@ -405,6 +405,7 @@ type TestStruct struct {
 
 // Helper function to create temporary files for testing
 func createTempFile(t *testing.T, content string) string {
+	t.Helper()
 	tmpFile, err := os.CreateTemp("", "test_*.go")
 	if err != nil {
 		t.Fatalf("Failed to create temp file: %v", err)

@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"go/ast"
+	"sort"
 	"strings"
 	"text/template"
 )
@@ -840,8 +841,14 @@ func (cg *CodeGenerator) generateUnionEncodeCode(field FieldInfo, structInfo Typ
 
 	var templateCases []UnionCaseData
 
-	// Generate cases for mapped constants
+	// Generate cases for mapped constants (sorted for determinism)
+	var constantValues []string
 	for constantValue := range structInfo.UnionConfig.Cases {
+		constantValues = append(constantValues, constantValue)
+	}
+	sort.Strings(constantValues)
+
+	for _, constantValue := range constantValues {
 		var encodeCode string
 		var err error
 
@@ -912,8 +919,14 @@ func (cg *CodeGenerator) generateUnionDecodeCode(field FieldInfo, structInfo Typ
 
 	var templateCases []UnionCaseData
 
-	// Generate cases for mapped constants
+	// Generate cases for mapped constants (sorted for determinism)
+	var constantValues []string
 	for constantValue := range structInfo.UnionConfig.Cases {
+		constantValues = append(constantValues, constantValue)
+	}
+	sort.Strings(constantValues)
+
+	for _, constantValue := range constantValues {
 		var decodeCode string
 		var err error
 

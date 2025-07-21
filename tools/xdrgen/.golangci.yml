@@ -1,24 +1,42 @@
 version: "2"
+
 linters:
   enable:
     - bodyclose
     - dogsled
+    - forbidigo
     - gocheckcompilerdirectives
     - gocritic
     - misspell
+    - nilnil
+    - nolintlint
     - revive
     - testifylint
+    - thelper
     - unconvert
   settings:
     misspell:
       locale: US
+      ignore-rules:
+        - cancelled
+        - exportfs
+    nolintlint:
+      allow-unused: true
+      allow-no-explanation: []
+      require-explanation: true
+      require-specific: true
     revive:
       confidence: 0.8
       severity: warning
       rules:
+        - name: argument-limit
+        - name: atomic
         - name: blank-imports
+        - name: bool-literal-in-expr
         - name: context-as-argument
+        - name: context-keys-type
         - name: defer
+        - name: dot-imports
         - name: early-return
         - name: empty-block
         - name: error-return
@@ -26,14 +44,19 @@ linters:
         - name: error-naming
         - name: errorf
         - name: exported
+        - name: import-shadowing
+        - name: indent-error-flow
         - name: increment-decrement
         - name: package-comments
         - name: range
         - name: receiver-naming
         - name: redefines-builtin-id
+        - name: struct-tag
         - name: superfluous-else
+        - name: time-equal
+        - name: time-naming
+        - name: unexported-return
         - name: unreachable-code
+        - name: use-any
         - name: var-declaration
         - name: var-naming
-# Simple config compatible with golangci-lint v2.2.2
-# Test files are excluded at lint command level

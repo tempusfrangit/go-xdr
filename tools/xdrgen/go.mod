@@ -1,8 +1,6 @@
 module github.com/tempusfrangit/go-xdr/tools/xdrgen
 
-go 1.20
-
-replace github.com/tempusfrangit/go-xdr => ../../
+go 1.23
 
 require github.com/stretchr/testify v1.9.0
 
