@@ -31,7 +31,7 @@ func TestTemplateManagerExecute(t *testing.T) {
 	require.NoError(t, err, "NewTemplateManager failed")
 
 	// Test executing a simple template
-	result, err := tm.ExecuteTemplate("assertion", TypeData{TypeName: "TestStruct"})
+	result, err := tm.ExecuteTemplate("assertion", TypeData{TypeName: "TestStruct", CanHaveLoops: false})
 	require.NoError(t, err, "ExecuteTemplate failed")
 
 	assert.Contains(t, result, "TestStruct", "Result should contain type name")
@@ -163,7 +163,9 @@ func TestGenerateBasicEncodeCode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := cg.generateBasicEncodeCode(tt.field)
+			// Create a dummy TypeInfo for testing
+			dummyTypeInfo := TypeInfo{Name: "TestType", CanHaveLoops: false}
+			result, err := cg.generateBasicEncodeCode(tt.field, dummyTypeInfo)
 			require.NoError(t, err, "generateBasicEncodeCode failed")
 
 			assert.Contains(t, result, tt.field.Name, "Result should contain field name")
@@ -205,7 +207,9 @@ func TestGenerateBasicDecodeCode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := cg.generateBasicDecodeCode(tt.field)
+			// Create a dummy TypeInfo for testing
+			dummyTypeInfo := TypeInfo{Name: "TestType", CanHaveLoops: false}
+			result, err := cg.generateBasicDecodeCode(tt.field, dummyTypeInfo)
 			require.NoError(t, err, "generateBasicDecodeCode failed")
 
 			assert.Contains(t, result, tt.field.Name, "Result should contain field name")
@@ -219,8 +223,9 @@ func TestGenerateArrayEncodeCode(t *testing.T) {
 	require.NoError(t, err, "NewCodeGenerator failed")
 
 	field := FieldInfo{Name: "Items", Type: "[]string", XDRType: "array"}
+	dummyTypeInfo := TypeInfo{Name: "TestType", CanHaveLoops: false}
 
-	result, err := cg.generateBasicEncodeCode(field)
+	result, err := cg.generateBasicEncodeCode(field, dummyTypeInfo)
 	require.NoError(t, err, "generateBasicEncodeCode failed")
 
 	assert.Contains(t, result, "Items", "Result should contain field name")
@@ -232,8 +237,9 @@ func TestGenerateArrayDecodeCode(t *testing.T) {
 	require.NoError(t, err, "NewCodeGenerator failed")
 
 	field := FieldInfo{Name: "Items", Type: "[]string", XDRType: "array"}
+	dummyTypeInfo := TypeInfo{Name: "TestType", CanHaveLoops: false}
 
-	result, err := cg.generateBasicDecodeCode(field)
+	result, err := cg.generateBasicDecodeCode(field, dummyTypeInfo)
 	require.NoError(t, err, "generateBasicDecodeCode failed")
 
 	assert.Contains(t, result, "Items", "Result should contain field name")
@@ -301,11 +307,12 @@ func TestGenerateUnsupportedXDRType(t *testing.T) {
 	require.NoError(t, err, "NewCodeGenerator failed")
 
 	field := FieldInfo{Name: "Bad", Type: "float64", XDRType: "unsupported"}
+	dummyTypeInfo := TypeInfo{Name: "TestType", CanHaveLoops: false}
 
-	_, err = cg.generateBasicEncodeCode(field)
+	_, err = cg.generateBasicEncodeCode(field, dummyTypeInfo)
 	require.Error(t, err, "Expected error for unsupported XDR type")
 
-	_, err = cg.generateBasicDecodeCode(field)
+	_, err = cg.generateBasicDecodeCode(field, dummyTypeInfo)
 	require.Error(t, err, "Expected error for unsupported XDR type")
 }
 
@@ -315,11 +322,12 @@ func TestGenerateFixedBytesCode(t *testing.T) {
 
 	// Test that fixed bytes field generates appropriate code
 	field := FieldInfo{Name: "Hash", Type: "[16]byte", XDRType: "bytes"}
+	dummyTypeInfo := TypeInfo{Name: "TestType", CanHaveLoops: false}
 
-	encodeResult, err := cg.generateBasicEncodeCode(field)
+	encodeResult, err := cg.generateBasicEncodeCode(field, dummyTypeInfo)
 	require.NoError(t, err, "generateBasicEncodeCode failed")
 
-	decodeResult, err := cg.generateBasicDecodeCode(field)
+	decodeResult, err := cg.generateBasicDecodeCode(field, dummyTypeInfo)
 	require.NoError(t, err, "generateBasicDecodeCode failed")
 
 	assert.Contains(t, encodeResult, "EncodeFixedBytes", "Encode result should contain EncodeFixedBytes")
@@ -354,41 +362,18 @@ func TestGenerateAliasCode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			encodeResult, err := cg.generateBasicEncodeCode(tt.field)
+			dummyTypeInfo := TypeInfo{Name: "TestType", CanHaveLoops: false}
+			encodeResult, err := cg.generateBasicEncodeCode(tt.field, dummyTypeInfo)
 			require.NoError(t, err, "generateBasicEncodeCode failed")
 
 			assert.Contains(t, encodeResult, tt.expected, "Expected %s in encode result, got: %s", tt.expected, encodeResult)
 
-			decodeResult, err := cg.generateBasicDecodeCode(tt.field)
+			decodeResult, err := cg.generateBasicDecodeCode(tt.field, dummyTypeInfo)
 			require.NoError(t, err, "generateBasicDecodeCode failed")
 
 			// For fixed bytes aliases, the decode code uses a special template
 			decodeExpected := strings.Replace(tt.expected, "Encode", "Decode", 1)
 			assert.Contains(t, decodeResult, decodeExpected, "Expected %s in decode result, got: %s", decodeExpected, decodeResult)
-		})
-	}
-}
-
-func TestGoTypeForXDRType(t *testing.T) {
-	tests := []struct {
-		xdrType  string
-		expected string
-	}{
-		{"string", "string"},
-		{"bytes", "[]byte"},
-		{"uint32", "uint32"},
-		{"uint64", "uint64"},
-		{"int32", "int32"},
-		{"int64", "int64"},
-		{"bool", "bool"},
-		{"fixed:16", "[16]byte"},
-		{"fixed:32", "[32]byte"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.xdrType, func(t *testing.T) {
-			result := goTypeForXDRType(tt.xdrType)
-			assert.Equal(t, tt.expected, result, "Expected %q, got %q", tt.expected, result)
 		})
 	}
 }
@@ -543,7 +528,9 @@ func TestArrayAliasResolution(t *testing.T) {
 			cg, err := NewCodeGenerator([]string{}, map[string]string{})
 			require.NoError(t, err, "NewCodeGenerator failed")
 
-			result, err := cg.generateBasicEncodeCode(tt.field)
+			// Create a dummy TypeInfo for testing
+			dummyTypeInfo := TypeInfo{Name: "TestType", CanHaveLoops: false}
+			result, err := cg.generateBasicEncodeCode(tt.field, dummyTypeInfo)
 			require.NoError(t, err, "generateBasicEncodeCode failed")
 
 			assert.Contains(t, result, tt.expectedCode, "%s: expected code to contain %q", tt.description, tt.expectedCode)

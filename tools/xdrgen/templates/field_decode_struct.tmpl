@@ -1,3 +1,7 @@
-if err := v.{{.FieldName}}.Decode(dec); err != nil {
+{{if .IsPointer}}
+	// Allocate pointer field before decoding
+	v.{{.FieldName}} = &{{.TypeWithoutPointer}}{}
+	{{end}}
+	if err := v.{{.FieldName}}.Decode(dec); err != nil {
 		return fmt.Errorf("failed to decode {{.FieldName}}: %w", err)
 	}

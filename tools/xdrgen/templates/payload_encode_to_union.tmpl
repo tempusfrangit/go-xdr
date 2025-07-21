@@ -1,5 +1,8 @@
 // EncodeToUnion encodes {{.PayloadTypeName}} directly to union format
 func (p *{{.PayloadTypeName}}) EncodeToUnion(enc *xdr.Encoder) error {
+{{if .CanHaveLoops}}
+	return p.EncodeToUnionWithContext(enc, make(map[unsafe.Pointer]bool))
+{{else}}
 	// Encode discriminant
 	if err := enc.EncodeUint32(uint32({{.Discriminant}})); err != nil {
 		return fmt.Errorf("failed to encode discriminant: %w", err)
@@ -11,4 +14,22 @@ func (p *{{.PayloadTypeName}}) EncodeToUnion(enc *xdr.Encoder) error {
 	}
 	
 	return nil
+{{end}}
 }
+
+{{if .CanHaveLoops}}
+// EncodeToUnionWithContext encodes {{.PayloadTypeName}} directly to union format with loop detection
+func (p *{{.PayloadTypeName}}) EncodeToUnionWithContext(enc *xdr.Encoder, encodingSet map[unsafe.Pointer]bool) error {
+	// Encode discriminant
+	if err := enc.EncodeUint32(uint32({{.Discriminant}})); err != nil {
+		return fmt.Errorf("failed to encode discriminant: %w", err)
+	}
+	
+	// Encode payload
+	if err := p.EncodeWithContext(enc, encodingSet); err != nil {
+		return fmt.Errorf("failed to encode payload: %w", err)
+	}
+	
+	return nil
+}
+{{end}}

@@ -1,6 +1,27 @@
+{{if .CanHaveLoops}}
+func (v *{{.TypeName}}) Encode(enc *xdr.Encoder) error {
+	return v.EncodeWithContext(enc, make(map[unsafe.Pointer]bool))
+}
+
+func (v *{{.TypeName}}) EncodeWithContext(enc *xdr.Encoder, encodingSet map[unsafe.Pointer]bool) error {
+	// Check for encoding loop using pointer address (prevents GC from moving objects)
+	ptr := unsafe.Pointer(v)
+	if encodingSet[ptr] {
+		return fmt.Errorf("encoding loop detected for {{.TypeName}}")
+	}
+	encodingSet[ptr] = true
+	defer delete(encodingSet, ptr)
+
+{{range .Fields}}
+	{{.EncodeCode}}
+{{end}}
+	return nil
+}
+{{else}}
 func (v *{{.TypeName}}) Encode(enc *xdr.Encoder) error {
 {{range .Fields}}
 	{{.EncodeCode}}
 {{end}}
 	return nil
 }
+{{end}}

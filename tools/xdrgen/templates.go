@@ -24,24 +24,30 @@ type FileData struct {
 
 // TypeData represents data for type templates
 type TypeData struct {
-	TypeName string
-	Fields   []FieldData
+	TypeName     string
+	Fields       []FieldData
+	CanHaveLoops bool // from static analysis
 }
 
 // FieldData represents data for field templates
 type FieldData struct {
-	FieldName           string
-	FieldType           string
-	ElementType         string
-	ResolvedElementType string // Resolved type for array elements (e.g., NFSStatus -> uint32)
-	ElementIsStruct     bool
-	EncodeCode          string
-	DecodeCode          string
-	Method              string
-	VarName             string
-	DiscriminantField   string
-	Cases               []UnionCaseData
-	HasDefaultCase      bool
+	FieldName                 string
+	FieldType                 string
+	ElementType               string
+	ResolvedElementType       string // Resolved type for array elements (e.g., NFSStatus -> uint32)
+	ElementIsStruct           bool
+	ElementIsPointer          bool   // true if ElementType is a pointer (starts with *)
+	ElementTypeWithoutPointer string // ElementType with * stripped off
+	IsPointer                 bool   // true if FieldType is a pointer (for field_decode_struct)
+	TypeWithoutPointer        string // FieldType with * stripped off (for field_decode_struct)
+	EncodeCode                string
+	DecodeCode                string
+	Method                    string
+	VarName                   string
+	DiscriminantField         string
+	Cases                     []UnionCaseData
+	HasDefaultCase            bool
+	ParentHasLoops            bool // true if the containing struct needs loop detection
 	// Alias-specific fields
 	UnderlyingType string
 	AliasType      string
@@ -162,28 +168,36 @@ func NewTemplateManager() (*TemplateManager, error) {
 			}
 		case "encode_method", "decode_method":
 			dummy = TypeData{
-				TypeName: "TestType",
-				Fields:   []FieldData{},
+				TypeName:     "TestType",
+				Fields:       []FieldData{},
+				CanHaveLoops: false,
 			}
 		case "assertion":
 			dummy = TypeData{
-				TypeName: "TestType",
+				TypeName:     "TestType",
+				CanHaveLoops: false,
 			}
 		case "field_encode_basic", "field_decode_basic", "field_encode_struct", "field_decode_struct":
 			dummy = FieldData{
-				FieldName:         "TestField",
-				FieldType:         "string",
-				Method:            "EncodeString",
-				VarName:           "tempTestField",
-				TypeConversion:    "",
-				TypeConversionEnd: "",
+				FieldName:          "TestField",
+				FieldType:          "string",
+				Method:             "EncodeString",
+				VarName:            "tempTestField",
+				TypeConversion:     "",
+				TypeConversionEnd:  "",
+				IsPointer:          false,
+				TypeWithoutPointer: "string",
+				ParentHasLoops:     false,
 			}
 		case "array_encode", "array_decode":
 			dummy = FieldData{
-				FieldName:       "TestArray",
-				FieldType:       "[]string",
-				ElementType:     "string",
-				ElementIsStruct: false,
+				FieldName:                 "TestArray",
+				FieldType:                 "[]string",
+				ElementType:               "string",
+				ElementIsStruct:           false,
+				ElementIsPointer:          false,
+				ElementTypeWithoutPointer: "string",
+				ParentHasLoops:            false,
 			}
 		case "field_encode_alias", "field_decode_alias":
 			dummy = FieldData{
@@ -220,10 +234,12 @@ func NewTemplateManager() (*TemplateManager, error) {
 				FieldType:       "[16]byte",
 				ElementType:     "byte",
 				ElementIsStruct: false,
+				ParentHasLoops:  false,
 			}
 		case "fixed_bytes_encode", "fixed_bytes_decode":
 			dummy = FieldData{
-				FieldName: "TestBytes",
+				FieldName:      "TestBytes",
+				ParentHasLoops: false,
 			}
 		case "payload_to_union":
 			dummy = struct {
@@ -243,9 +259,11 @@ func NewTemplateManager() (*TemplateManager, error) {
 			dummy = struct {
 				PayloadTypeName string
 				Discriminant    string
+				CanHaveLoops    bool
 			}{
 				PayloadTypeName: "TestPayload",
 				Discriminant:    "TestConstant",
+				CanHaveLoops:    false,
 			}
 		default:
 			dummy = struct{}{}
@@ -299,6 +317,7 @@ func (cg *CodeGenerator) GenerateFileHeader(sourceFile, packageName string, exte
 
 // GenerateEncodeMethod generates the encode method using templates
 func (cg *CodeGenerator) GenerateEncodeMethod(typeInfo TypeInfo) (string, error) {
+	debugf("GenerateEncodeMethod: %s, CanHaveLoops=%t", typeInfo.Name, typeInfo.CanHaveLoops)
 	// Convert fields to template data
 	var fields []FieldData
 	for _, field := range typeInfo.Fields {
@@ -318,14 +337,14 @@ func (cg *CodeGenerator) GenerateEncodeMethod(typeInfo TypeInfo) (string, error)
 			fieldData.EncodeCode = encodeCode
 		case field.IsKey:
 			// Key field
-			encodeCode, err := cg.generateBasicEncodeCode(field)
+			encodeCode, err := cg.generateBasicEncodeCode(field, typeInfo)
 			if err != nil {
 				return "", err
 			}
 			fieldData.EncodeCode = encodeCode
 		default:
 			// Regular field
-			encodeCode, err := cg.generateBasicEncodeCode(field)
+			encodeCode, err := cg.generateBasicEncodeCode(field, typeInfo)
 			if err != nil {
 				return "", err
 			}
@@ -336,8 +355,9 @@ func (cg *CodeGenerator) GenerateEncodeMethod(typeInfo TypeInfo) (string, error)
 	}
 
 	data := TypeData{
-		TypeName: typeInfo.Name,
-		Fields:   fields,
+		TypeName:     typeInfo.Name,
+		Fields:       fields,
+		CanHaveLoops: typeInfo.CanHaveLoops,
 	}
 	return cg.tm.ExecuteTemplate("encode_method", data)
 }
@@ -363,14 +383,14 @@ func (cg *CodeGenerator) GenerateDecodeMethod(typeInfo TypeInfo) (string, error)
 			fieldData.DecodeCode = decodeCode
 		case field.IsKey:
 			// Key field
-			decodeCode, err := cg.generateBasicDecodeCode(field)
+			decodeCode, err := cg.generateBasicDecodeCode(field, typeInfo)
 			if err != nil {
 				return "", err
 			}
 			fieldData.DecodeCode = decodeCode
 		default:
 			// Regular field
-			decodeCode, err := cg.generateBasicDecodeCode(field)
+			decodeCode, err := cg.generateBasicDecodeCode(field, typeInfo)
 			if err != nil {
 				return "", err
 			}
@@ -381,8 +401,9 @@ func (cg *CodeGenerator) GenerateDecodeMethod(typeInfo TypeInfo) (string, error)
 	}
 
 	data := TypeData{
-		TypeName: typeInfo.Name,
-		Fields:   fields,
+		TypeName:     typeInfo.Name,
+		Fields:       fields,
+		CanHaveLoops: typeInfo.CanHaveLoops,
 	}
 	return cg.tm.ExecuteTemplate("decode_method", data)
 }
@@ -433,9 +454,11 @@ func (cg *CodeGenerator) GeneratePayloadEncodeToUnion(typeInfo TypeInfo) (string
 	data := struct {
 		PayloadTypeName string
 		Discriminant    string
+		CanHaveLoops    bool
 	}{
 		PayloadTypeName: typeInfo.Name,
 		Discriminant:    typeInfo.PayloadConfig.Discriminant,
+		CanHaveLoops:    typeInfo.CanHaveLoops,
 	}
 
 	return cg.tm.ExecuteTemplate("payload_encode_to_union", data)
@@ -444,7 +467,7 @@ func (cg *CodeGenerator) GeneratePayloadEncodeToUnion(typeInfo TypeInfo) (string
 // Helper functions for generating field-specific code
 
 // generateBasicEncodeCode generates basic encode code for a field
-func (cg *CodeGenerator) generateBasicEncodeCode(field FieldInfo) (string, error) {
+func (cg *CodeGenerator) generateBasicEncodeCode(field FieldInfo, typeInfo TypeInfo) (string, error) {
 	// Special case: []byte with xdr:"bytes" should use bytes encoding, not array encoding
 	// Check both Type and ResolvedType to handle aliases like SessionID which is []byte
 	if (field.Type == "[]byte" || field.ResolvedType == "[]byte") && field.XDRType == "bytes" {
@@ -485,7 +508,8 @@ func (cg *CodeGenerator) generateBasicEncodeCode(field FieldInfo) (string, error
 		}
 		if isFixedByteArray {
 			return cg.tm.ExecuteTemplate("fixed_bytes_encode", FieldData{
-				FieldName: field.Name,
+				FieldName:      field.Name,
+				ParentHasLoops: typeInfo.CanHaveLoops,
 			})
 		}
 	}
@@ -494,19 +518,26 @@ func (cg *CodeGenerator) generateBasicEncodeCode(field FieldInfo) (string, error
 	// Check both Type and ResolvedType to handle aliases like SessionID which is []byte
 	if strings.HasPrefix(field.Type, "[]") || strings.HasPrefix(field.ResolvedType, "[]") {
 		// Variable-length array: []Type with xdr:"elementXDRType"
-		return cg.generateVariableArrayEncodeCode(field)
+		return cg.generateVariableArrayEncodeCode(field, typeInfo)
 	}
 
 	if (strings.HasPrefix(field.Type, "[") && strings.Contains(field.Type, "]")) ||
 		(strings.HasPrefix(field.ResolvedType, "[") && strings.Contains(field.ResolvedType, "]")) {
 		// Fixed-length array: [N]Type with xdr:"elementXDRType"
-		return cg.generateFixedArrayEncodeCode(field)
+		return cg.generateFixedArrayEncodeCode(field, typeInfo)
 	}
 
 	// Handle struct types specially
 	if field.XDRType == "struct" {
+		isPointer := strings.HasPrefix(field.Type, "*")
+		typeWithoutPointer := strings.TrimPrefix(field.Type, "*")
+
 		data := FieldData{
-			FieldName: field.Name,
+			FieldName:          field.Name,
+			FieldType:          field.Type,
+			IsPointer:          isPointer,
+			TypeWithoutPointer: typeWithoutPointer,
+			ParentHasLoops:     typeInfo.CanHaveLoops,
 		}
 		return cg.tm.ExecuteTemplate("field_encode_struct", data)
 	}
@@ -554,7 +585,7 @@ func (cg *CodeGenerator) generateBasicEncodeCode(field FieldInfo) (string, error
 }
 
 // generateVariableArrayEncodeCode generates encode code for []Type fields
-func (cg *CodeGenerator) generateVariableArrayEncodeCode(field FieldInfo) (string, error) {
+func (cg *CodeGenerator) generateVariableArrayEncodeCode(field FieldInfo, typeInfo TypeInfo) (string, error) {
 	elementType := strings.TrimPrefix(field.Type, "[]")
 
 	// For arrays, we need to resolve the element type to determine the encoding method
@@ -567,7 +598,9 @@ func (cg *CodeGenerator) generateVariableArrayEncodeCode(field FieldInfo) (strin
 	}
 
 	// Determine if element is a struct based on resolved type
-	elementIsStruct := !cg.isPrimitiveTypeWithAliases(resolvedElementType)
+	// For pointer types like *Node, we need to strip the * to check the underlying type
+	typeToCheck := strings.TrimPrefix(resolvedElementType, "*")
+	elementIsStruct := !cg.isPrimitiveTypeWithAliases(typeToCheck)
 
 	data := FieldData{
 		FieldName:           field.Name,
@@ -575,13 +608,14 @@ func (cg *CodeGenerator) generateVariableArrayEncodeCode(field FieldInfo) (strin
 		ElementType:         elementType,
 		ResolvedElementType: resolvedElementType,
 		ElementIsStruct:     elementIsStruct,
+		ParentHasLoops:      typeInfo.CanHaveLoops,
 		// Use the XDR tag as the element encoding type
 	}
 	return cg.tm.ExecuteTemplate("array_encode", data)
 }
 
 // generateFixedArrayEncodeCode generates encode code for [N]Type fields
-func (cg *CodeGenerator) generateFixedArrayEncodeCode(field FieldInfo) (string, error) {
+func (cg *CodeGenerator) generateFixedArrayEncodeCode(field FieldInfo, typeInfo TypeInfo) (string, error) {
 	// Use ResolvedType if available, otherwise fall back to Type
 	arrayType := field.ResolvedType
 	if arrayType == "" {
@@ -599,7 +633,8 @@ func (cg *CodeGenerator) generateFixedArrayEncodeCode(field FieldInfo) (string, 
 	// Special case: [N]byte with xdr:"bytes" -> use EncodeFixedBytes optimization
 	if elementType == "byte" && field.XDRType == "bytes" {
 		return cg.tm.ExecuteTemplate("fixed_bytes_encode", FieldData{
-			FieldName: field.Name,
+			FieldName:      field.Name,
+			ParentHasLoops: typeInfo.CanHaveLoops,
 		})
 	}
 
@@ -610,12 +645,13 @@ func (cg *CodeGenerator) generateFixedArrayEncodeCode(field FieldInfo) (string, 
 		FieldType:       field.Type,
 		ElementType:     elementType,
 		ElementIsStruct: elementIsStruct,
+		ParentHasLoops:  typeInfo.CanHaveLoops,
 	}
 	return cg.tm.ExecuteTemplate("fixed_array_encode", data)
 }
 
 // generateBasicDecodeCode generates basic decode code for a field
-func (cg *CodeGenerator) generateBasicDecodeCode(field FieldInfo) (string, error) {
+func (cg *CodeGenerator) generateBasicDecodeCode(field FieldInfo, typeInfo TypeInfo) (string, error) {
 	// Special case: []byte with xdr:"bytes" should use bytes decoding, not array decoding
 	if (field.Type == "[]byte" || field.ResolvedType == "[]byte") && field.XDRType == "bytes" {
 		method := cg.getDecodeMethod(field.XDRType)
@@ -647,7 +683,8 @@ func (cg *CodeGenerator) generateBasicDecodeCode(field FieldInfo) (string, error
 	if field.XDRType == "bytes" && field.ResolvedType != "" &&
 		strings.HasPrefix(field.ResolvedType, "[") && !strings.HasPrefix(field.ResolvedType, "[]") && strings.Contains(field.ResolvedType, "]byte") {
 		return cg.tm.ExecuteTemplate("fixed_bytes_decode", FieldData{
-			FieldName: field.Name,
+			FieldName:      field.Name,
+			ParentHasLoops: typeInfo.CanHaveLoops,
 		})
 	}
 
@@ -655,21 +692,27 @@ func (cg *CodeGenerator) generateBasicDecodeCode(field FieldInfo) (string, error
 	// Check both Type and ResolvedType to handle aliases like SessionID which is []byte
 	if strings.HasPrefix(field.Type, "[]") || strings.HasPrefix(field.ResolvedType, "[]") {
 		// Variable-length array: []Type with xdr:"elementXDRType"
-		return cg.generateVariableArrayDecodeCode(field)
+		return cg.generateVariableArrayDecodeCode(field, typeInfo)
 	}
 
 	if (strings.HasPrefix(field.Type, "[") && strings.Contains(field.Type, "]")) ||
 		(strings.HasPrefix(field.ResolvedType, "[") && strings.Contains(field.ResolvedType, "]")) {
 		// Fixed-length array: [N]Type with xdr:"elementXDRType"
-		return cg.generateFixedArrayDecodeCode(field)
+		return cg.generateFixedArrayDecodeCode(field, typeInfo)
 	}
 
 	// Handle struct types specially
 	if field.XDRType == "struct" {
 		// Note: We don't track package usage for struct types because they use method calls
 		// like v.Field.Decode(dec) which don't require package prefixes
+		isPointer := strings.HasPrefix(field.Type, "*")
+		typeWithoutPointer := strings.TrimPrefix(field.Type, "*")
+
 		data := FieldData{
-			FieldName: field.Name,
+			FieldName:          field.Name,
+			FieldType:          field.Type,
+			IsPointer:          isPointer,
+			TypeWithoutPointer: typeWithoutPointer,
 		}
 		return cg.tm.ExecuteTemplate("field_decode_struct", data)
 	}
@@ -705,7 +748,7 @@ func (cg *CodeGenerator) generateBasicDecodeCode(field FieldInfo) (string, error
 }
 
 // generateVariableArrayDecodeCode generates decode code for []Type fields
-func (cg *CodeGenerator) generateVariableArrayDecodeCode(field FieldInfo) (string, error) {
+func (cg *CodeGenerator) generateVariableArrayDecodeCode(field FieldInfo, typeInfo TypeInfo) (string, error) {
 	elementType := strings.TrimPrefix(field.Type, "[]")
 
 	// For arrays, we need to resolve the element type to determine the decoding method
@@ -718,21 +761,29 @@ func (cg *CodeGenerator) generateVariableArrayDecodeCode(field FieldInfo) (strin
 	}
 
 	// Determine if element is a struct based on resolved type
-	elementIsStruct := !cg.isPrimitiveTypeWithAliases(resolvedElementType)
+	// For pointer types like *Node, we need to strip the * to check the underlying type
+	typeToCheck := strings.TrimPrefix(resolvedElementType, "*")
+	elementIsStruct := !cg.isPrimitiveTypeWithAliases(typeToCheck)
+
+	elementIsPointer := strings.HasPrefix(elementType, "*")
+	elementTypeWithoutPointer := strings.TrimPrefix(elementType, "*")
 
 	data := FieldData{
-		FieldName:           field.Name,
-		FieldType:           field.Type,
-		ElementType:         elementType,
-		ResolvedElementType: resolvedElementType,
-		ElementIsStruct:     elementIsStruct,
+		FieldName:                 field.Name,
+		FieldType:                 field.Type,
+		ElementType:               elementType,
+		ResolvedElementType:       resolvedElementType,
+		ElementIsStruct:           elementIsStruct,
+		ElementIsPointer:          elementIsPointer,
+		ElementTypeWithoutPointer: elementTypeWithoutPointer,
+		ParentHasLoops:            typeInfo.CanHaveLoops,
 		// Use the XDR tag as the element encoding type
 	}
 	return cg.tm.ExecuteTemplate("array_decode", data)
 }
 
 // generateFixedArrayDecodeCode generates decode code for [N]Type fields
-func (cg *CodeGenerator) generateFixedArrayDecodeCode(field FieldInfo) (string, error) {
+func (cg *CodeGenerator) generateFixedArrayDecodeCode(field FieldInfo, typeInfo TypeInfo) (string, error) {
 	// Use ResolvedType if available, otherwise fall back to Type
 	arrayType := field.ResolvedType
 	if arrayType == "" {
@@ -750,7 +801,8 @@ func (cg *CodeGenerator) generateFixedArrayDecodeCode(field FieldInfo) (string, 
 	// Special case: [N]byte with xdr:"bytes" -> use DecodeFixedBytesInto optimization
 	if elementType == "byte" && field.XDRType == "bytes" {
 		return cg.tm.ExecuteTemplate("fixed_bytes_decode", FieldData{
-			FieldName: field.Name,
+			FieldName:      field.Name,
+			ParentHasLoops: typeInfo.CanHaveLoops,
 		})
 	}
 
@@ -761,6 +813,7 @@ func (cg *CodeGenerator) generateFixedArrayDecodeCode(field FieldInfo) (string, 
 		FieldType:       field.Type,
 		ElementType:     elementType,
 		ElementIsStruct: elementIsStruct,
+		ParentHasLoops:  typeInfo.CanHaveLoops,
 	}
 	return cg.tm.ExecuteTemplate("fixed_array_decode", data)
 }
@@ -951,8 +1004,6 @@ func (cg *CodeGenerator) getEncodeMethod(xdrType string) string {
 	}
 }
 
-// goTypeForXDRType converts XDR type names to Go type names
-
 // getDecodeMethod returns the appropriate decoder method for an XDR type
 func (cg *CodeGenerator) getDecodeMethod(xdrType string) string {
 	switch xdrType {
@@ -1052,8 +1103,8 @@ func (cg *CodeGenerator) resolveAliasToStruct(typeName string) bool {
 		}
 		seen[typeName] = true
 		// If it's an alias, try to resolve
-		if strings.HasPrefix(typeName, "alias:") {
-			typeName = strings.TrimPrefix(typeName, "alias:")
+		if after, found := strings.CutPrefix(typeName, "alias:"); found {
+			typeName = after
 			continue
 		}
 		break

@@ -201,9 +201,9 @@ The `DecodeFixedBytesInto` method provides zero-allocation decoding for fixed-si
 
 | Type | Encode | Decode | Marshal | Unmarshal |
 |------|--------|--------|---------|-----------|
-| Person | 11.91 ns/op | 54.75 ns/op | 142.9 ns/op | 68.62 ns/op |
-| Config | 39.93 ns/op | 161.2 ns/op | 140.4 ns/op | 198.4 ns/op |
-| Company | 61.61 ns/op | 297.0 ns/op | 192.6 ns/op | 326.6 ns/op |
+| Person | 11.71 ns/op | 56.41 ns/op | 143.2 ns/op | 72.89 ns/op |
+| Config | 40.62 ns/op | 157.9 ns/op | 141.4 ns/op | 194.6 ns/op |
+| Company | 62.93 ns/op | 300.3 ns/op | 192.7 ns/op | 329.6 ns/op |
 
 ### Discriminated Unions
 
@@ -228,6 +228,39 @@ The `DecodeFixedBytesInto` method provides zero-allocation decoding for fixed-si
 | Read | 2.151 ns/op | 2.162 ns/op | 135.3 ns/op | 32.31 ns/op |
 | Write (void) | 2.133 ns/op | 2.170 ns/op | 101.1 ns/op | 18.69 ns/op |
 
+### Cycle Detection Performance
+
+The XDR library implements intelligent cycle detection that only adds overhead when types can actually have cycles. Simple types use a fast path with zero overhead.
+
+#### Fast Path (No Cycle Detection)
+
+These types are statically analyzed as non-cyclable and use the fast encoding path:
+
+| Type | Encode | Memory | Allocations |
+|------|--------|--------|-------------|
+| Person | 11.71 ns/op | 0 B/op | 0 allocs/op |
+| Config | 40.62 ns/op | 0 B/op | 0 allocs/op |
+| Company | 62.93 ns/op | 0 B/op | 0 allocs/op |
+
+#### Cycle Detection Enabled
+
+Types with potential cycles (self-references, `any`/`interface{}` fields, or reference cycles) automatically include loop detection:
+
+| Type | Encode | Memory | Allocations | Performance Impact |
+|------|--------|--------|-------------|------------------|
+| SimpleData (fast path) | 8.130 ns/op | 0 B/op | 0 allocs/op | No overhead |
+| Node (self-reference) | 100.1 ns/op | 0 B/op | 0 allocs/op | 12.3x slower |
+| FlexibleData (pointer chain) | 201.9 ns/op | 128 B/op | 4 allocs/op | 24.8x slower |
+
+**Performance Analysis**:
+- **Fast Path**: Simple types with no cycle potential maintain zero overhead (8.130 ns/op)
+- **Cycle Detection**: Types with potential cycles include loop detection overhead
+- **Memory Tracking**: Loop detection uses unsafe.Pointer maps to track encoding progress
+- **Safety**: Complete protection against infinite recursion and stack overflow
+- **Type Restrictions**: `any`/`interface{}` types are not supported in XDR encoding and will cause compilation errors
+
+**Performance Summary**: The cycle detection system maintains **zero performance overhead** for simple types while providing complete safety for potentially cyclable types. This represents a significant improvement over the previous always-on detection that caused 73-1355% performance degradation.
+
 ## Key Performance Insights
 
 1. **Zero-Allocation Encoding**: All primitive types and fixed-size arrays encode with zero allocations
@@ -235,6 +268,7 @@ The `DecodeFixedBytesInto` method provides zero-allocation decoding for fixed-si
 3. **Union Efficiency**: Void cases in discriminated unions are significantly more memory-efficient than payload cases
 4. **Throughput**: The library achieves multi-gigabyte per second throughput for most operations
 5. **Memory Reuse**: Encoder/decoder reuse provides minimal performance benefit, indicating efficient object creation
+6. **Intelligent Cycle Detection**: Static analysis ensures only types that can have cycles pay the overhead, maintaining zero performance impact on simple types
 
 ## Performance Recommendations
 
@@ -243,6 +277,7 @@ The `DecodeFixedBytesInto` method provides zero-allocation decoding for fixed-si
 3. **Reuse encoders/decoders** for high-frequency operations
 4. **Batch operations** to amortize the overhead of individual encode/decode calls
 5. **Use appropriate buffer sizes** to avoid buffer resizing during encoding
+6. **Do not use `any`/`interface{}` types** - these are not supported in XDR encoding as XDR requires statically typed data structures
 
 ## Running Benchmarks
 

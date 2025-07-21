@@ -109,7 +109,22 @@ func validateDecodeSignature(funcDecl *ast.FuncDecl) bool {
 
 // collectExternalImports collects external package imports from types
 func collectExternalImports(types []TypeInfo, file *ast.File) []string {
-	return extractPackageImportsFromTypes(types, file)
+	imports := extractPackageImportsFromTypes(types, file)
+
+	// Only add "unsafe" import if any types need loop detection
+	needsUnsafe := false
+	for _, typeInfo := range types {
+		if typeInfo.CanHaveLoops && !disableLoopDetection {
+			needsUnsafe = true
+			break
+		}
+	}
+
+	if needsUnsafe {
+		imports = append(imports, "unsafe")
+	}
+
+	return imports
 }
 
 // extractPackageImports extracts package imports from types used in the struct
@@ -222,7 +237,6 @@ func parseXDRTag(tag string) string {
 	xdrPart := strings.Split(parts[1], `"`)[0]
 	return xdrPart
 }
-
 
 // parseUnionComment parses a union configuration comment
 // Format: //xdr:union=DiscriminantType,case=ConstantValue
@@ -487,7 +501,6 @@ func parseFileWithPackageTypeDefs(filename string, packageTypeDefs map[string]as
 	types, errors, typeDefs, _, err := parseFileInternal(filename, packageTypeDefs, packageConstants)
 	return types, errors, typeDefs, err
 }
-
 
 // resolveAliasTypeWithFile recursively resolves alias chains, including cross-package types when file is provided
 func resolveAliasTypeWithFile(goType string, typeAliases map[string]string, file *ast.File, filename string) string {
@@ -1323,6 +1336,11 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 						if xdrDirectives.Union != nil && xdrDirectives.Union.Key == fieldInfo.Name {
 							fieldInfo.IsKey = true
 							debugf("Marked field %s as key field from +xdr:union directive", fieldInfo.Name)
+						}
+
+						// Block any/interface{} types early - they are not supported in XDR
+						if containsAnyOrInterface(fieldInfo.Type) {
+							log.Fatalf("Error: Field %s.%s has type '%s' which contains any/interface{} that is not supported in XDR encoding.\nXDR requires statically typed data structures. Consider using a concrete type instead.", typeInfo.Name, fieldInfo.Name, fieldInfo.Type)
 						}
 
 						// Auto-discover XDR type from Go type

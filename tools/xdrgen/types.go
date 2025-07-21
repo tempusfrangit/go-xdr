@@ -28,6 +28,7 @@ type TypeInfo struct {
 	IsPayload            bool // true if this struct is a payload for a union
 	UnionConfig          *UnionConfig
 	PayloadConfig        *PayloadConfig
+	CanHaveLoops         bool // determined by static analysis of type dependencies
 }
 
 // UnionConfig represents discriminated union configuration

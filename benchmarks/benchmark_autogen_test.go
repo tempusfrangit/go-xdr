@@ -461,3 +461,162 @@ func BenchmarkAutogenMarshalUnmarshal(b *testing.B) {
 		}
 	})
 }
+
+// Cycle Detection Benchmark Types
+
+// BenchmarkNode represents a node in a potentially circular data structure
+// +xdr:generate
+type BenchmarkNode struct {
+	ID       uint32           // auto-detected as uint32
+	Value    string           // auto-detected as string
+	Children []*BenchmarkNode // Can create cycles
+}
+
+// BenchmarkFlexibleData contains a self-reference that creates cycles
+// +xdr:generate
+type BenchmarkFlexibleData struct {
+	ID   uint32                 // auto-detected as uint32
+	Next *BenchmarkFlexibleData // Self-reference - forces loop detection
+}
+
+// BenchmarkSimpleData has no potential for cycles (should get fast path)
+// +xdr:generate
+type BenchmarkSimpleData struct {
+	ID    uint32 // auto-detected as uint32
+	Name  string // auto-detected as string
+	Count int64  // auto-detected as int64
+}
+
+// Test data for cycle detection benchmarks
+var (
+	benchmarkSimpleData = BenchmarkSimpleData{
+		ID:    1,
+		Name:  "benchmark test",
+		Count: 12345,
+	}
+
+	benchmarkNode = BenchmarkNode{
+		ID:    1,
+		Value: "root node",
+		Children: []*BenchmarkNode{
+			{ID: 2, Value: "child1", Children: nil},
+			{ID: 3, Value: "child2", Children: nil},
+		},
+	}
+
+	benchmarkFlexibleData = BenchmarkFlexibleData{
+		ID:   1,
+		Next: &BenchmarkFlexibleData{ID: 2, Next: nil}, // Allocated but no cycle
+	}
+)
+
+func BenchmarkCycleDetection(b *testing.B) {
+	buf := make([]byte, 1024)
+
+	b.Run("SimpleData/Encode", func(b *testing.B) {
+		// Should use fast path (no cycle detection)
+		for i := 0; i < b.N; i++ {
+			enc := xdr.NewEncoder(buf)
+			_ = benchmarkSimpleData.Encode(enc)
+		}
+	})
+
+	b.Run("SimpleData/Decode", func(b *testing.B) {
+		enc := xdr.NewEncoder(buf)
+		_ = benchmarkSimpleData.Encode(enc)
+		data := enc.Bytes()
+
+		var simple BenchmarkSimpleData
+		for i := 0; i < b.N; i++ {
+			dec := xdr.NewDecoder(data)
+			_ = simple.Decode(dec)
+		}
+	})
+
+	b.Run("Node/Encode", func(b *testing.B) {
+		// Should use cycle detection (potential cycles from []*Node)
+		for i := 0; i < b.N; i++ {
+			enc := xdr.NewEncoder(buf)
+			_ = benchmarkNode.Encode(enc)
+		}
+	})
+
+	b.Run("Node/Decode", func(b *testing.B) {
+		enc := xdr.NewEncoder(buf)
+		_ = benchmarkNode.Encode(enc)
+		data := enc.Bytes()
+
+		var node BenchmarkNode
+		for i := 0; i < b.N; i++ {
+			dec := xdr.NewDecoder(data)
+			_ = node.Decode(dec)
+		}
+	})
+
+	b.Run("FlexibleData/Encode", func(b *testing.B) {
+		// Should use cycle detection (any field is implicitly cyclable)
+		for i := 0; i < b.N; i++ {
+			enc := xdr.NewEncoder(buf)
+			_ = benchmarkFlexibleData.Encode(enc)
+		}
+	})
+
+	b.Run("FlexibleData/Decode", func(b *testing.B) {
+		enc := xdr.NewEncoder(buf)
+		_ = benchmarkFlexibleData.Encode(enc)
+		data := enc.Bytes()
+
+		var flex BenchmarkFlexibleData
+		for i := 0; i < b.N; i++ {
+			dec := xdr.NewDecoder(data)
+			_ = flex.Decode(dec)
+		}
+	})
+}
+
+func BenchmarkCycleDetectionMarshal(b *testing.B) {
+	b.Run("SimpleData/Marshal", func(b *testing.B) {
+		// Fast path - no cycle detection
+		for i := 0; i < b.N; i++ {
+			_, _ = xdr.Marshal(&benchmarkSimpleData)
+		}
+	})
+
+	b.Run("SimpleData/Unmarshal", func(b *testing.B) {
+		data, _ := xdr.Marshal(&benchmarkSimpleData)
+		var simple BenchmarkSimpleData
+		for i := 0; i < b.N; i++ {
+			_ = xdr.Unmarshal(data, &simple)
+		}
+	})
+
+	b.Run("Node/Marshal", func(b *testing.B) {
+		// With cycle detection
+		for i := 0; i < b.N; i++ {
+			_, _ = xdr.Marshal(&benchmarkNode)
+		}
+	})
+
+	b.Run("Node/Unmarshal", func(b *testing.B) {
+		data, _ := xdr.Marshal(&benchmarkNode)
+		var node BenchmarkNode
+		for i := 0; i < b.N; i++ {
+			_ = xdr.Unmarshal(data, &node)
+		}
+	})
+
+	b.Run("FlexibleData/Marshal", func(b *testing.B) {
+		// With cycle detection
+		for i := 0; i < b.N; i++ {
+			_, _ = xdr.Marshal(&benchmarkFlexibleData)
+		}
+	})
+
+	b.Run("FlexibleData/Unmarshal", func(b *testing.B) {
+		data, _ := xdr.Marshal(&benchmarkFlexibleData)
+		var flex BenchmarkFlexibleData
+		for i := 0; i < b.N; i++ {
+			_ = xdr.Unmarshal(data, &flex)
+		}
+	})
+}

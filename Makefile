@@ -8,7 +8,7 @@ build: bin/xdrgen
 # Backwards compatibility alias
 xdrgen: bin/xdrgen
 
-bin/xdrgen: bin tools/xdrgen/*.go
+bin/xdrgen: bin tools/xdrgen/*.go tools/xdrgen/templates/*.tmpl
 	cd tools/xdrgen && go build -o ../../bin/xdrgen .
 
 # Install xdrgen to GOPATH/bin
@@ -88,7 +88,7 @@ test-race: generate-test generate-codegen-test
 
 # Run benchmarks (with build tags)
 bench: generate-test
-	go test -tags=bench -bench=. -benchmem ./...
+	go test -tags=bench -bench=. -benchmem -timeout=10m ./...
 
 # Clean build artifacts
 clean:

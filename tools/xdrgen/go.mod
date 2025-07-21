@@ -2,8 +2,6 @@ module github.com/tempusfrangit/go-xdr/tools/xdrgen
 
 go 1.20
 
-toolchain go1.24.3
-
 replace github.com/tempusfrangit/go-xdr => ../../
 
 require github.com/stretchr/testify v1.9.0

@@ -5,6 +5,10 @@
 v.{{.FieldName}} = make([]{{.ElementType}}, {{.FieldName}}Len)
 for i := range v.{{.FieldName}} {
 	{{if .ElementIsStruct}}
+	{{if .ElementIsPointer}}
+	// Allocate pointer element before decoding
+	v.{{.FieldName}}[i] = &{{.ElementTypeWithoutPointer}}{}
+	{{end}}
 	if err := v.{{.FieldName}}[i].Decode(dec); err != nil {
 		return fmt.Errorf("failed to decode element: %w", err)
 	}

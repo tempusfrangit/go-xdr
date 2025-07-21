@@ -38,13 +38,7 @@ import (
 
 var silent bool
 var debug = false
-
-// Set debug from environment variable if present
-func init() {
-	if os.Getenv("XDRGEN_DEBUG") != "" {
-		debug = true
-	}
-}
+var disableLoopDetection = false
 
 // logf logs a message unless in silent mode
 func logf(format string, args ...any) {
@@ -84,6 +78,7 @@ func main() {
 	flag.BoolVar(&silent, "silent", false, "suppress all output except errors")
 	flag.BoolVar(&silent, "s", false, "suppress all output except errors (shorthand)")
 	flag.BoolVar(&debug, "debug", false, "enable debug logging")
+	flag.BoolVar(&disableLoopDetection, "disable-loop-detection", false, "disable runtime loop detection even for types with potential cycles")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "xdrgen - XDR Code Generator\n\n")
@@ -102,7 +97,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Supported Go Types (auto-detected):\n")
 		fmt.Fprintf(os.Stderr, "  uint32, uint64, int32, int64  - Integer types\n")
 		fmt.Fprintf(os.Stderr, "  string                        - Variable-length string\n")
-		fmt.Fprintf(os.Stderr, "  []byte, [N]byte              - Byte arrays (variable/fixed)\n")
+		fmt.Fprintf(os.Stderr, "  []byte, [N]byte               - Byte arrays (variable/fixed)\n")
 		fmt.Fprintf(os.Stderr, "  bool                          - Boolean (encoded as uint32)\n")
 		fmt.Fprintf(os.Stderr, "  struct types                  - Nested structs (auto-detected)\n")
 		fmt.Fprintf(os.Stderr, "  []Type                        - Variable-length arrays\n")
@@ -147,6 +142,11 @@ func main() {
 	}
 
 	inputPath := flag.Arg(0)
+
+	// Set debug from environment variable if present
+	if os.Getenv("XDRGEN_DEBUG") != "" {
+		debug = true
+	}
 
 	// Convert to absolute path
 	inputPath, err := filepath.Abs(inputPath)
@@ -522,6 +522,18 @@ func processFileWithPackageUnionContext(inputFile string, allUnionConfigs map[st
 
 	debugf("Final structTypeNames list (%d types): %v", len(structTypeNames), structTypeNames)
 	debugf("Final allTypeAliases (%d entries): %v", len(allTypeAliases), allTypeAliases)
+
+	// Analyze type dependencies and detect potential cycles
+	graph := AnalyzeTypeDependencies(types)
+	cycles := graph.DetectCycles()
+
+	// Update types with cycle detection results
+	UpdateTypeInfoWithCycles(types, graph)
+
+	// Print warnings if cycles were detected or types are implicitly cyclable
+	if len(cycles) > 0 || hasImplicitlyCyclableTypes(graph) {
+		PrintCycleWarnings(cycles, graph)
+	}
 
 	// Create code generator
 	codeGen, err := NewCodeGenerator(structTypeNames, allTypeAliases)

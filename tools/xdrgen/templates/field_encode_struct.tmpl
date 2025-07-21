@@ -1,3 +1,14 @@
-if err := v.{{.FieldName}}.Encode(enc); err != nil {
+{{if .IsPointer}}
+	if v.{{.FieldName}} == nil {
+		return fmt.Errorf("pointer field {{.FieldName}} is nil")
+	}
+	{{end}}
+	{{if .ParentHasLoops}}
+	if err := v.{{.FieldName}}.EncodeWithContext(enc, encodingSet); err != nil {
 		return fmt.Errorf("failed to encode {{.FieldName}}: %w", err)
 	}
+	{{else}}
+	if err := v.{{.FieldName}}.Encode(enc); err != nil {
+		return fmt.Errorf("failed to encode {{.FieldName}}: %w", err)
+	}
+	{{end}}

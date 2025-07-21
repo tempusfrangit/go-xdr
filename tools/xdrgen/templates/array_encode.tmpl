@@ -4,9 +4,15 @@
 	}
 for _, elem := range v.{{.FieldName}} {
 	{{if .ElementIsStruct}}
+	{{if .ParentHasLoops}}
+	if err := elem.EncodeWithContext(enc, encodingSet); err != nil {
+		return fmt.Errorf("failed to encode element: %w", err)
+	}
+	{{else}}
 	if err := elem.Encode(enc); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}
+	{{end}}
 	{{else if eq .ResolvedElementType "string"}}
 	if err := enc.EncodeString({{if ne .ElementType .ResolvedElementType}}string(elem){{else}}elem{{end}}); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
@@ -45,8 +51,14 @@ for _, elem := range v.{{.FieldName}} {
 	}
 	{{else}}
 	// Element type {{.ElementType}} - delegate to element's Encode method if available
+	{{if .ParentHasLoops}}
+	if err := elem.EncodeWithContext(enc, encodingSet); err != nil {
+		return fmt.Errorf("failed to encode element: %w", err)
+	}
+	{{else}}
 	if err := elem.Encode(enc); err != nil {
 		return fmt.Errorf("failed to encode element: %w", err)
 	}
+	{{end}}
 	{{end}}
 	}
