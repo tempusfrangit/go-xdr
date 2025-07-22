@@ -1,6 +1,6 @@
 # go-xdr
 
-**Minimum Go version: 1.20**
+**Minimum Go version: 1.23**
 
 An allocation-efficient XDR (External Data Representation) library for Go with code generation support.
 
