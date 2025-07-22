@@ -29,8 +29,8 @@ builds:
       - -X main.date={{.Date}}
 
 archives:
-  - id: default
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  - id: xdrgen
+    name_template: "xdrgen_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format: tar.gz
     format_overrides:
       - goos: windows
@@ -72,11 +72,11 @@ release:
     name: go-xdr
   draft: false
   prerelease: auto
-  name_template: "{{.ProjectName}}-v{{.Version}}"
+  name_template: "v{{.Version}}"
   header: |
-    ## GO-XDR {{.Version}}
+    ## xdrgen {{.Version}}
 
-    XDR library for Go with discriminated union support.
+    XDR utility for generating XDR code.
 
     ### Installation
 
