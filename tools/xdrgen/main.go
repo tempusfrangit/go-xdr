@@ -39,7 +39,6 @@ import (
 var silent bool
 var debug = false
 var disableLoopDetection = false
-var originalWorkingDir string
 
 // logf logs a message unless in silent mode
 func logf(msg string, args ...any) {
@@ -149,15 +148,8 @@ func main() {
 		debug = true
 	}
 
-	// Store current working directory for relative path computation in templates
-	var err error
-	originalWorkingDir, err = os.Getwd()
-	if err != nil {
-		log.Fatal("Error getting working directory:", err)
-	}
-
 	// Convert to absolute path
-	inputPath, err = filepath.Abs(inputPath)
+	inputPath, err := filepath.Abs(inputPath)
 	if err != nil {
 		log.Fatal("Error getting absolute path:", err)
 	}
@@ -199,11 +191,21 @@ func processFile(inputFile string) {
 
 // processFileWithPackageContext processes a file with package-level union configuration gathering
 func processFileWithPackageContext(inputFile, packageDir string) {
-	// Discover all Go files in the package
-	files, err := discoverGoFiles(packageDir)
+	debugf("processFileWithPackageContext: called with inputFile=%s, packageDir=%s", inputFile, packageDir)
+
+	// Find ALL Go files in the package for complete type resolution
+	allFiles, err := findAllGoFiles(packageDir)
 	if err != nil {
-		log.Fatal("Error discovering Go files:", err)
+		log.Fatal("Error finding all Go files:", err)
 	}
+	debugf("findAllGoFiles found %d files", len(allFiles))
+
+	// Also discover files with generation directives for processing
+	generatableFiles, err := discoverGoFiles(packageDir)
+	if err != nil {
+		log.Fatal("Error discovering generatable Go files:", err)
+	}
+	debugf("discoverGoFiles found %d generatable files", len(generatableFiles))
 
 	// Parse all files to gather type information and build union configurations
 	allUnionConfigs := make(map[string]*UnionConfig)
@@ -213,13 +215,17 @@ func processFileWithPackageContext(inputFile, packageDir string) {
 	allTypeAliases := make(map[string]string)            // Collect type aliases from all files
 	payloadMappings := make(map[string][]PayloadMapping) // unionType -> []PayloadMapping
 
-	for _, file := range files {
+	// Parse ALL files in the package to gather complete type information
+	debugf("Package-level collection: allFiles contains %d files", len(allFiles))
+	for i, file := range allFiles {
+		debugf("Package-level collection: processing file %d/%d: %s", i+1, len(allFiles), file)
 		// Parse each file to get type definitions and constants
 		fset := token.NewFileSet()
 		astFile, err := parser.ParseFile(fset, file, nil, parser.ParseComments)
 		if err != nil {
-			log.Fatal("Error parsing file:", err)
+			log.Fatalf("Package-level collection: failed to parse file %s: %v", file, err)
 		}
+		debugf("Package-level collection: successfully parsed file %s", file)
 
 		// Collect type definitions, constants, and type aliases
 		ast.Inspect(astFile, func(n ast.Node) bool {
@@ -250,10 +256,11 @@ func processFileWithPackageContext(inputFile, packageDir string) {
 			allConstants[name] = constantInfo
 		}
 
-		// Parse file to collect payload directives
-		types, _, _, err := parseFileWithPackageTypeDefs(file, allTypeDefs, allConstants)
+		// Parse file to collect payload directives (using collection mode to skip strict validation)
+		types, _, _, err := parseFileWithPackageTypeDefsForCollection(file, allTypeDefs, allConstants, allTypeAliases)
 		if err != nil {
-			log.Fatalf("Error parsing file %s: %v", file, err)
+			debugf("Package-level collection: failed to parse payload directives from %s: %v", file, err)
+			continue // Skip files that can't be parsed for payload directives
 		}
 
 		// Collect payload mappings from parsed types
@@ -331,8 +338,10 @@ func processFileWithPackageContext(inputFile, packageDir string) {
 		debugf("processFileWithPackageContext: allTypeDefs keys: %v", keys)
 	}
 
-	// Now process all files with XDR generation using complete package context
-	for _, file := range files {
+	// Now process only generatable files for XDR code generation using complete package context
+	debugf("Processing %d generatable files for code generation", len(generatableFiles))
+	for _, file := range generatableFiles {
+		debugf("Processing generatable file: %s", file)
 		processFileWithPackageUnionContext(file, allUnionConfigs, allTypeDefs, allConstants, allStructTypes, allTypeAliases)
 	}
 }
@@ -348,7 +357,7 @@ func processFileWithPackageUnionContext(inputFile string, allUnionConfigs map[st
 	}
 
 	debugf("Processing input file: %s", inputFile)
-	types, _, _, err := parseFileWithPackageTypeDefs(inputFile, allTypeDefs, allConstants)
+	types, _, _, err := parseFileWithPackageTypeDefs(inputFile, allTypeDefs, allConstants, allTypeAliases)
 	if err != nil {
 		log.Fatal("Error parsing file:", err)
 	}
@@ -554,11 +563,9 @@ func processFileWithPackageUnionContext(inputFile string, allUnionConfigs map[st
 	// Generate output
 	var output strings.Builder
 
-	// Generate file header with relative path for determinism
-	relativeInputFile, err := filepath.Rel(originalWorkingDir, inputFile)
-	if err != nil {
-		relativeInputFile = inputFile // fallback to absolute path if relative fails
-	}
+	// Generate file header with consistent path for determinism
+	// Use just the filename to avoid path variations based on execution directory
+	relativeInputFile := filepath.Base(inputFile)
 	header, err := codeGen.GenerateFileHeader(relativeInputFile, packageName, externalImports, buildTags, len(types))
 	if err != nil {
 		log.Fatal("Error generating file header:", err)

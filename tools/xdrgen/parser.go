@@ -451,6 +451,33 @@ func formatType(expr ast.Expr) string {
 	}
 }
 
+// findAllGoFiles finds all .go files in a directory (for complete package processing)
+func findAllGoFiles(dir string) ([]string, error) {
+	var files []string
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	debugf("findAllGoFiles: scanning directory %s", dir)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		// Include ALL .go files for complete type resolution (including test files and ignored files)
+		if strings.HasSuffix(entry.Name(), ".go") {
+			filePath := filepath.Join(dir, entry.Name())
+			files = append(files, filePath)
+			debugf("findAllGoFiles: added file %s", filePath)
+		}
+	}
+
+	debugf("findAllGoFiles: found %d total files", len(files))
+	return files, nil
+}
+
 // discoverGoFiles finds all .go files in a directory that have //go:generate xdrgen directives
 func discoverGoFiles(dir string) ([]string, error) {
 	var files []string
@@ -496,9 +523,15 @@ func discoverGoFiles(dir string) ([]string, error) {
 }
 
 // parseFileWithPackageTypeDefs parses a Go file with package-level type definitions
-func parseFileWithPackageTypeDefs(filename string, packageTypeDefs map[string]ast.Node, packageConstants map[string]ConstantInfo) ([]TypeInfo, []ValidationError, map[string]ast.Node, error) {
-	debugf("parseFileWithPackageTypeDefs: called with filename=%s, packageTypeDefs=%d entries", filename, len(packageTypeDefs))
-	types, errors, typeDefs, _, err := parseFileInternal(filename, packageTypeDefs, packageConstants)
+func parseFileWithPackageTypeDefs(filename string, packageTypeDefs map[string]ast.Node, packageConstants map[string]ConstantInfo, packageTypeAliases map[string]string) ([]TypeInfo, []ValidationError, map[string]ast.Node, error) {
+	debugf("parseFileWithPackageTypeDefs: called with filename=%s, packageTypeDefs=%d entries, packageTypeAliases=%d entries", filename, len(packageTypeDefs), len(packageTypeAliases))
+	types, errors, typeDefs, _, err := parseFileInternalWithPackageAliases(filename, packageTypeDefs, packageConstants, packageTypeAliases)
+	return types, errors, typeDefs, err
+}
+
+func parseFileWithPackageTypeDefsForCollection(filename string, packageTypeDefs map[string]ast.Node, packageConstants map[string]ConstantInfo, packageTypeAliases map[string]string) ([]TypeInfo, []ValidationError, map[string]ast.Node, error) {
+	debugf("parseFileWithPackageTypeDefsForCollection: called with filename=%s, packageTypeDefs=%d entries, packageTypeAliases=%d entries", filename, len(packageTypeDefs), len(packageTypeAliases))
+	types, errors, typeDefs, _, err := parseFileInternalWithPackageAliases(filename, packageTypeDefs, packageConstants, packageTypeAliases, true)
 	return types, errors, typeDefs, err
 }
 
@@ -1047,8 +1080,9 @@ func collectXDRDirectives(file *ast.File, structPos token.Pos) *XDRDirectives {
 	return directives
 }
 
-// parseFileInternal is the internal implementation that can optionally use package-level type definitions
-func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, packageConstants map[string]ConstantInfo) ([]TypeInfo, []ValidationError, map[string]ast.Node, map[string]string, error) {
+func parseFileInternalWithPackageAliases(filename string, packageTypeDefs map[string]ast.Node, packageConstants map[string]ConstantInfo, packageTypeAliases map[string]string, isCollection ...bool) ([]TypeInfo, []ValidationError, map[string]ast.Node, map[string]string, error) {
+	// Check if this is package collection mode (skip strict validation)
+	forCollection := len(isCollection) > 0 && isCollection[0]
 	fset := token.NewFileSet()
 
 	fileBytes, err := os.ReadFile(filename) // #nosec G304 -- Code generator needs to read Go source files
@@ -1139,6 +1173,15 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 				underlyingType := formatType(typeExpr)
 				typeAliases[typeName] = underlyingType
 			}
+		}
+	}
+
+	// Merge package-level type aliases
+	debugf("Merging %d package-level type aliases", len(packageTypeAliases))
+	for typeName, underlyingType := range packageTypeAliases {
+		if _, exists := typeAliases[typeName]; !exists {
+			typeAliases[typeName] = underlyingType
+			debugf("Added package-level type alias: %s -> %s", typeName, underlyingType)
 		}
 	}
 	// Debug: print typeAliases map
@@ -1380,9 +1423,14 @@ func parseFileInternal(filename string, packageTypeDefs map[string]ast.Node, pac
 							underlyingType, ok := typeAliases[fieldInfo.Type]
 							if fieldInfo.Type != "uint32" && (!ok || underlyingType != "uint32") {
 								if !ok {
-									log.Fatalf("Key field %s.%s references type %s which is not defined in this file. For cross-file dependencies, process the entire package directory instead of individual files", typeInfo.Name, fieldInfo.Name, fieldInfo.Type)
+									if !forCollection {
+										log.Fatalf("Key field %s.%s references type %s which is not defined in this file. For cross-file dependencies, process the entire package directory instead of individual files", typeInfo.Name, fieldInfo.Name, fieldInfo.Type)
+									}
+									// During package collection, skip validation for types that might be defined in other files
+									debugf("Skipping validation for key field %s.%s (type %s) during package collection", typeInfo.Name, fieldInfo.Name, fieldInfo.Type)
+								} else if !forCollection {
+									log.Fatalf("Key field %s.%s must be uint32 or an alias of uint32, got %s (resolves to %s)", typeInfo.Name, fieldInfo.Name, fieldInfo.Type, underlyingType)
 								}
-								log.Fatalf("Key field %s.%s must be uint32 or an alias of uint32, got %s (resolves to %s)", typeInfo.Name, fieldInfo.Name, fieldInfo.Type, underlyingType)
 							}
 							// Key fields should be treated as uint32 for encoding/decoding
 							fieldInfo.XDRType = "uint32"
